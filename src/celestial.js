@@ -228,6 +228,7 @@ export class SkyMap {
   }
 
   function load() {
+    gridKey = null;
     //Background
     setClip(projectionSetting.clip);
     container.append("path").datum(graticule.outline).attr("class", "outline"); 
@@ -240,16 +241,6 @@ export class SkyMap {
       if (!has(cfg.lines, key)) continue;
       if (key === "graticule") {
         container.append("path").datum(graticule).attr("class", "graticule"); 
-        if (has(cfg.lines.graticule, "lon") && cfg.lines.graticule.lon.pos.length > 0) 
-          container.selectAll(parentElement + " .gridvalues_lon")
-            .data(getGridValues("lon", cfg.lines.graticule.lon.pos, instance))
-            .enter().append("path")
-            .attr("class", "graticule_lon"); 
-        if (has(cfg.lines.graticule, "lat") && cfg.lines.graticule.lat.pos.length > 0) 
-          container.selectAll(parentElement + " .gridvalues_lat")
-            .data(getGridValues("lat", cfg.lines.graticule.lat.pos, instance))
-            .enter().append("path")
-            .attr("class", "graticule_lat"); 
       } else {
         container.append("path")
           .datum(d3.geoCircle().radius(90).center(transformDeg(poles[key], euler[cfg.transform])) )
@@ -571,6 +562,22 @@ export class SkyMap {
   }
 
   
+  var gridKey;
+  function updateGridLabels() {
+    var grid = cfg.lines.graticule;
+    var lon = grid.lon ? grid.lon.pos : [];
+    var lat = grid.lat ? grid.lat.pos : [];
+    var relative = lon.concat(lat).some(function(p) { return p === "center" || p === "outline"; });
+    var key = JSON.stringify([cfg.transform, lon, lat, relative ? cfg.center : null]);
+    if (key === gridKey) return;
+    gridKey = key;
+    ["lon", "lat"].forEach(function(type) {
+      container.selectAll(".graticule_" + type)
+        .data(getGridValues(type, grid[type] ? grid[type].pos : [], instance))
+        .join("path").attr("class", "graticule_" + type);
+    });
+  }
+
   function redraw() {  
     var rot = mapProjection.rotate();
     
@@ -589,6 +596,7 @@ export class SkyMap {
     cfg.center = [-rot[0], -rot[1], rot[2]];
     
     formApi.setCenter(cfg.center, cfg.transform);
+    updateGridLabels();
     clear();
     
     drawOutline();

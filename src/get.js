@@ -168,15 +168,15 @@ function jsonGridValues(lines) {
   return res;
 }
 
-// `trans` is the map's coordinate system. It used to be read from a `sky`
+// `transform` is the map's coordinate system. It used to be read from a `sky`
 // variable that is not in scope here, so any grid label position threw a
 // ReferenceError — or, on a page with a global `sky`, silently read that.
-function getLine(type, loc, orient, trans) {
+function getLine(type, loc, orient, transform) {
   var min, max, step, val, coord,
       tp = type,
       res = [],
       lr = loc;
-  if (trans === "equatorial" && tp === "lon") tp = "ra";
+  if (transform === "equatorial" && tp === "lon") tp = "ra";
   
   if (tp === "ra") {
     min = 0; max = 23; step = 1;

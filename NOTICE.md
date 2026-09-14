@@ -36,6 +36,13 @@ Algorithms*; both are inherited from the upstream project.
 
 ## Data files
 
-The star, deep-sky and Milky Way data under `harness/data/` is a minimal subset
-copied from the upstream repository for reproducible testing. The full data sets,
-their sources and licensing are documented upstream.
+The catalogues in `harness/data/` are copied from upstream for examples and
+regression checks and are excluded from the npm package. Attribution of code
+does not establish redistribution terms for every contributed dataset.
+
+For Milky Way outlines, upstream [issue #160](https://github.com/ofrohn/d3-celestial/issues/160)
+records the original catalogue's provenance and the lack of stated licensing
+information in its archive. The outer layer was derived from Mourao's atlas;
+inner layers were traced from Mellinger's photomosaic. No explicit permission
+record was established by that discussion. Keep this distinction when deciding
+which data to distribute.

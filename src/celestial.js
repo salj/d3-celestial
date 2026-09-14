@@ -348,7 +348,7 @@ Celestial.display = function(config) {
     // Orientation interpolator
     if (o === 0) oTween = function () { return rot[2]; };
     else oTween = interpolateAngle(cFrom[2], cfg.center[2]);
-    if (d > 3.14) cfg.center[0] += 0.01; //180deg turn is ambiguous
+    if (d >= 3.14) cFrom = [cFrom[0] + 0.01, cFrom[1], cFrom[2]]; //180deg turn is ambiguous
     cfg.orientationfixed = false;  
     // Rotation interpolator
     if (d === 0) cTween = function () { return cfg.center; };

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>d3-celestial — visual baseline</title>
+<style>
+  body { margin: 0; background: #000; }
+  #celestial-map { width: 800px; height: 800px; }
+</style>
+</head>
+<body>
+<div id="celestial-map"></div>
+
+<script src="vendor/d3.min.js"></script>
+<script src="vendor/d3.geo.projection.min.js"></script>
+<script src="vendor/topojson.min.js"></script>
+<script src="vendor/celestial.min.js"></script>
+<script>
+/* Visual baseline: the reference net records numbers, this one records images.
+ * Along the way of the migration the same settings have to be photographed again. */
+var BASE = {
+  container: "celestial-map",
+  width: 800,
+  transform: "equatorial",
+  interactive: false,
+  form: false,
+  controls: false,
+  // The images have to be reproducible: photographed mid-animation, two runs
+  // are not comparable.
+  disableAnimations: true,
+  // Without this, every redraw() sets the rotation again (celestial.js:467), and
+  // d3's degree->radian->degree round trip drifts by a thousandth of a degree per
+  // frame. Since the number of redraws depends on the timing of the data loading,
+  // two identical runs would give images differing by a subpixel — incomparably.
+  orientationfixed: false,
+  // The first display() calls the geo() function of location.js, which derives a
+  // centre from the CURRENT time — without this the images of two runs differ by a
+  // subpixel, because time passed in between. With a fixed date the image is
+  // reproducible.
+  date: new Date(Date.UTC(2026, 7, 26, 20, 0, 0)),
+  // By default the map follows the observer's zenith, which depends on the current time.
+  follow: "center",
+  location: false,
+  datapath: "./data/",
+  stars: { show: true, limit: 6, colors: true, size: 7, names: false, designation: false },
+  dsos: { show: true, limit: 6, names: false },
+  planets: { show: false },
+  constellations: { names: true, namesType: "iau", lines: true, bounds: false,
+                    linestyle: { stroke: "#cccccc", width: 1, opacity: 0.6 } },
+  mw: { show: true },
+  lines: { graticule: { show: true, stroke: "#cccccc", width: 0.6, opacity: 0.5 } },
+  horizon: { show: false },
+  daylight: { show: false },
+  background: { fill: "#000000", stroke: "#000000" }
+};
+
+window.done = false;
+window.show = function (projection_, centerPoint, extra) {
+  window.done = false;
+  var c = {};
+  for (var k in BASE) { c[k] = BASE[k]; }
+  c.projection = projection_;
+  // Always an explicit centre: null does not reset the previous one, and
+  // consecutive calls would leak the state into the next image.
+  c.center = centerPoint || [0, 0, 0];
+  if (extra) { for (var e in extra) { c[e] = extra[e]; } }
+  c.callback = function () { window.done = true; };
+  Celestial.display(c);
+};
+// The view is selected from the URL so that EXACTLY ONE display() runs per page
+// load. The library keeps global state (#96/#131): the second display() gives a
+// different — subpixel-shifted — image than the first. Comparable images
+// therefore always need a fresh page.
+//   #airy            or     #orthographic,180,55
+//   #airy                          — projection in its default orientation
+//   #orthographic,180,55           — projection + centre
+//   #orthographic,180,55|{"mw":{"show":false}} — plus a configuration override
+window.addEventListener("load", function () {
+  var h = decodeURIComponent(location.hash.slice(1));
+  if (!h) { window.show("aitoff"); return; }
+  var parts = h.split("|");
+  var r = parts[0].split(",");
+  var center = r.length >= 3 ? [parseFloat(r[1]), parseFloat(r[2]), parseFloat(r[3] || 0)] : [0, 0, 0];
+  var extra = parts[1] ? JSON.parse(parts[1]) : null;
+  window.show(r[0], center, extra);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The browser checks run headless Chromium. Locally that is the system
+      # Chrome (no download); in CI it is Playwright's own.
+      - run: npx playwright install --with-deps chromium
+
+      - name: build + tests + types + reference net + visual comparison + smoke test
+        run: npm run verify
+
+      # The reference net and the screenshots are regenerated during the run.
+      # Any change is a real difference, so upload the fresh measurements.
+      - name: upload the fresh measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: measurements
+          path: |
+            harness/reference-d3v3.json
+            harness/reference-d3v7.json
+            docs/images/*.png
+          if-no-files-found: ignore
+
+      - name: the package installs and imports
+        run: |
+          npm pack
+          mkdir -p /tmp/pkg-check && cd /tmp/pkg-check && npm init -y >/dev/null
+          npm i --no-audit --no-fund "$GITHUB_WORKSPACE"/celestial-chart-*.tgz
+          node --input-type=module -e 'const m = await import("celestial-chart"); if (typeof m.default !== "object" || typeof m.SkyMap !== "function") { console.error("ESM import failed"); process.exit(1) } console.log("ESM ok, version:", m.default.version)'
+          node -e 'const m = require("celestial-chart"); if (!(m.default || m.Celestial)) { console.error("CJS require failed"); process.exit(1) } console.log("CJS ok")'
+
+      # Only the reference net is compared byte for byte. It is a table of
+      # numbers, so it is platform independent — the same (RA, Dec, projection,
+      # rotation) has to give the same (x, y) everywhere.
+      #
+      # The PNGs are NOT compared against the recorded ones: they are rendered
+      # by the machine's own font stack, so a macOS-recorded image never equals
+      # an Ubuntu-rendered one (the files come out 20-35% larger here). That is
+      # not a regression, and the visual check does not depend on it: the run
+      # above compares the v3 and v7 images with each OTHER, both rendered in
+      # THIS environment, which is the invariant that actually matters.
+      - name: the measurements must match the recorded ones
+        run: |
+          git diff --stat -- harness/reference-*.json
+          git diff --quiet -- harness/reference-*.json \
+            || (echo "The recorded measurements differ from this run — see the uploaded artifact." && exit 1)

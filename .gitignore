@@ -1,6 +1,7 @@
-upstream/
 node_modules/
 harness/reference-*.json.tmp
 .DS_Store
 build/
 demo/*.svg
+docs/images/
+*.tgz

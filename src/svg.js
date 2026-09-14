@@ -800,7 +800,7 @@ var customSvgSymbols = new Map(Object.entries({
     var s = Math.sqrt(size), 
         r = s/2,
         ph = 0.5 * (1 - Math.cos(ratio)),
-        e = 1.6 * Math.abs(ph - 0.5) + 0.01,
+        e = 1.98 * Math.abs(ph - 0.5) + 0.01,
         dir = ratio > Math.PI ? 0 : 1,
         termdir = Math.abs(ph) > 0.5 ? dir : Math.abs(dir-1); 
     return 'M ' + (-1) + ',' + (-1) +

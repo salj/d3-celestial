@@ -739,6 +739,9 @@ export class SkyMap {
         if (clip(pos)) {
           var pt = mapProjection(pos),
               sym = cfg.planets.symbols[id];
+          context.save();
+          setTextStyle(cfg.planets.symbolStyle);
+          context.beginPath();
           if (cfg.planets.symbolType === "letter") {
             setTextStyle(cfg.planets.symbolStyle);
             context.fillStyle = sym.fill;
@@ -766,6 +769,7 @@ export class SkyMap {
             context.fillStyle = sym.fill;
             context.fillText(name, pt[0] - r/2, pt[1] + r/2);                        
           }
+          context.restore();
         }
       });
     }

@@ -1,5 +1,5 @@
 import * as d3 from "./d3.js";
-import { dsonames, starnames } from "./celestial.js";
+
 import { bvcolor, formats, projections, settings } from "./config.js";
 import { getData, getGridValues, getMwbackground, getPlanet } from "./get.js";
 import { Celestial } from "./core.js";
@@ -7,11 +7,13 @@ import { poles } from "./projection.js";
 import { euler, getAngles, halfπ, transformDeg } from "./transform.js";
 import { Round, attrs, taskQueue, functor, has, isArray, loadJson } from "./util.js";
 
-function exportSVG(fname) {
+// SVG export of one map. It receives the instance so that it works from that
+// map's own configuration, container and name tables.
+function exportSVG(sky, done, fname) {
   var doc = d3.select("body").append("div").attr("id", "d3-celestial-svg").attr("style", "display: none"),
       svg = d3.select("#d3-celestial-svg").append("svg"), //.attr("style", "display: none"),
       m = Celestial.metrics(),
-      cfg = settings.set(),
+      cfg = sky.cfg,
       path = cfg.datapath,
       proj = projections[cfg.projection],
       rotation = getAngles(cfg.center),
@@ -74,7 +76,7 @@ function exportSVG(fname) {
       styles.gridLines = svgStyle(cfg.lines.graticule);
     }
     if (has(cfg.lines.graticule, "lon") && cfg.lines.graticule.lon.pos.length > 0) {
-      var jlon = {type: "FeatureCollection", features: getGridValues("lon", cfg.lines.graticule.lon.pos)};      
+      var jlon = {type: "FeatureCollection", features: getGridValues("lon", cfg.lines.graticule.lon.pos, sky)};      
       groups.gridvaluesLon.selectAll(".gridvalues_lon")
         .data(jlon.features)
         .enter().append("text")
@@ -84,7 +86,7 @@ function exportSVG(fname) {
       styles.gridvaluesLon = svgTextStyle(cfg.lines.graticule.lon); 
     }
     if (has(cfg.lines.graticule, "lat") && cfg.lines.graticule.lat.pos.length > 0) {
-      var jlat = {type: "FeatureCollection", features: getGridValues("lat", cfg.lines.graticule.lat.pos)};
+      var jlat = {type: "FeatureCollection", features: getGridValues("lat", cfg.lines.graticule.lat.pos, sky)};
       groups.gridvaluesLat.selectAll(".gridvalues_lat")
         .data(jlat.features)
         .enter().append("text")
@@ -371,7 +373,7 @@ function exportSVG(fname) {
           o = Celestial.origin(dt).spherical(),
           jp = {type: "FeatureCollection", features: []},
           jlun = {type: "FeatureCollection", features: []};
-      Celestial.container.selectAll(".planet").each(function(d) {
+      sky.container.selectAll(".planet").each(function(d) {
         var id = d.id(), r = 12,
             p = d(dt).equatorial(o);
             
@@ -464,7 +466,7 @@ function exportSVG(fname) {
   
   if ((cfg.location || cfg.formFields.location) && cfg.daylight.show && proj.clip) {
     q.defer(function(callback) {
-      var sol = getPlanet("sol");
+      var sol = getPlanet("sol", undefined, sky);
       if (sol) {
         var up = Celestial.zenith(),
             solpos = sol.ephemeris.pos,
@@ -639,8 +641,8 @@ function exportSVG(fname) {
   function dsoName(d) {
     //return p[cfg.dsos.namesType]; 
     var lang = cfg.dsos.namesType, id = d.id;
-    if (lang === "desig" || !has(dsonames, id)) return d.properties.desig;
-    return has(dsonames[id], lang) ? dsonames[id][lang] : d.properties.desig; 
+    if (lang === "desig" || !has(sky.dsonames, id)) return d.properties.desig;
+    return has(sky.dsonames[id], lang) ? sky.dsonames[id][lang] : d.properties.desig; 
   }
 
   function dsoColor(p) {
@@ -649,14 +651,14 @@ function exportSVG(fname) {
   }
  
   function starDesignation(id) {
-    if (!has(starnames, id)) return "";
-    return starnames[id][cfg.stars.designationType]; 
+    if (!has(sky.starnames, id)) return "";
+    return sky.starnames[id][cfg.stars.designationType]; 
   }
 
   function starPropername(id) {
     var lang = cfg.stars.propernameType;
-    if (!has(starnames, id)) return "";
-    return has(starnames[id], lang) ? starnames[id][lang] : starnames[id].name; 
+    if (!has(sky.starnames, id)) return "";
+    return has(sky.starnames[id], lang) ? sky.starnames[id][lang] : sky.starnames[id].name; 
   }
 
   function starSize(mag) {
@@ -757,8 +759,8 @@ function exportSVG(fname) {
       a.href = URL.createObjectURL(blob);
       a.click();
       d3.select(a).remove();
-    } else if (exportCallback !== null) {
-      exportCallback(svg.node().outerHTML);
+    } else if (done !== null) {
+      done(svg.node().outerHTML);
     }
     d3.select("#d3-celestial-svg").remove();
   });
@@ -807,6 +809,12 @@ var customSvgSymbols = new Map(Object.entries({
     var s = Math.sqrt(size), 
         r = s/2,
         ph = 0.5 * (1 - Math.cos(ratio)),
+        // The terminator's semi-minor axis is |cos(phase angle)| times the disc
+        // radius, which in terms of the illuminated fraction is
+        // |2*ph - 1| = 2*|ph - 0.5|. The factor of 1.6 drew a full moon 19% too
+        // narrow — as a gibbous disc (#130). 1.98 + 0.01 gives exactly 1 at full
+        // and new moon while keeping the guard against a degenerate ellipse at
+        // the quarters.
         e = 1.98 * Math.abs(ph - 0.5) + 0.01,
         dir = ratio > Math.PI ? 0 : 1,
         termdir = Math.abs(ph) > 0.5 ? dir : Math.abs(dir-1); 
@@ -858,12 +866,14 @@ function customSymbol() {
   return symbol;
 }
 
-var exportCallback = null;
 
+
+// Backwards compatible: the global interface acts on the most recent map.
+// Per instance, the object returned by Celestial.display() carries its own
+// exportSVG, which exports that map.
 Celestial.exportSVG = function(callback) {
   if (!callback) return;
-  exportCallback = callback;
-  exportSVG();
+  exportSVG(this && this.cfg ? this : Celestial, callback);
 };
 
 export { customSvgSymbols, exportSVG };

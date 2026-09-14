@@ -1,4 +1,3 @@
-import { parentElement } from "./celestial.js";
 import * as d3 from "./d3.js";
 import { deg2rad, halfπ, τ } from "./transform.js";
 
@@ -164,6 +163,11 @@ var Trig = {
   tanh: function (val) { return 2.0 / (1.0 + Math.exp(-2.0 * val)) - 1.0; },
   asinh: function (val) { return Math.log(val + Math.sqrt(val * val + 1)); },
   acosh: function (val) { return Math.log(val + Math.sqrt(val * val - 1)); },
+  // The JS `%` keeps the sign of the dividend, so a single shift is only enough
+  // while the input does not go below -2*pi (respectively -3*pi). The mean
+  // orbital elements do grow large as one moves away from J2000, and there the
+  // old formula returned a negative — that is, un-normalised — angle. Shifting
+  // twice is correct for every input.
   normalize0: function(val) { return (((val + Math.PI) % (Math.PI*2)) + Math.PI*2) % (Math.PI*2) - Math.PI; },
   normalize: function(val) { return ((val % (Math.PI*2)) + Math.PI*2) % (Math.PI*2); },
 
@@ -269,6 +273,3 @@ function polygonContains(polygon, point) {
 }
 
 export { Round, Trig, attrs, dateDiff, dateParse, taskQueue, findPos, functor, has, hasParent, interpolateAngle, isArray, isNumber, isObject, isValidDate, loadJson, classes_, pad, px, styles_ };
-
-function $(id) { return document.querySelector(parentElement + " #" + id); }
-export { $ };

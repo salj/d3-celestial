@@ -1,4 +1,4 @@
-import { cfg } from "./celestial.js";
+
 import { Kepler } from "./kepler.js";
 import { Celestial } from "./core.js";
 import { euler, transformDeg } from "./transform.js";
@@ -23,12 +23,14 @@ function getData(d, trans) {
   return d;
 }
 
-function getPlanets(d) {
+// These also receive the map instance: the planet list and the grid values
+// depend on that map's own configuration, not on a shared "current map".
+function getPlanets(d, sky) {
   var res = [];
   
   for (var key in d) {
     if (!has(d, key)) continue;
-    if (cfg.planets.which.indexOf(key) === -1) continue;
+    if (sky.cfg.planets.which.indexOf(key) === -1) continue;
     var dat = Kepler().id(key);
     if (has(d[key], "parent")) dat.parentBody(d[key].parent);
     dat.elements(d[key].elements[0]).params(d[key]);
@@ -42,13 +44,13 @@ function getPlanets(d) {
 }
 
 
-function getPlanet(id, dt) {
+function getPlanet(id, dt, sky) {
   dt = dt || Celestial.date();
   if (!Celestial.origin) return;
 
   var o = Celestial.origin(dt).spherical(), res;
      
-  Celestial.container.selectAll(".planet").each(function(d) {
+  sky.container.selectAll(".planet").each(function(d) {
     if (id === d.id()) {
       res = d(dt).equatorial(o);
     }
@@ -102,7 +104,7 @@ function translate(d, leo) {
   return res;
 }
 
-function getGridValues(type, loc) {
+function getGridValues(type, loc, sky) {
   var lines = [];
   if (!loc) return [];
   if (!isArray(loc)) loc = [loc];
@@ -111,18 +113,18 @@ function getGridValues(type, loc) {
     switch (loc[i]) {
       case "center": 
         if (type === "lat")
-          lines = lines.concat(getLine(type, cfg.center[0], "N"));
+          lines = lines.concat(getLine(type, sky.cfg.center[0], "N"));
         else
-          lines = lines.concat(getLine(type, cfg.center[1], "S")); 
+          lines = lines.concat(getLine(type, sky.cfg.center[1], "S")); 
         break;
       case "outline": 
         if (type === "lon") { 
-          lines = lines.concat(getLine(type, cfg.center[1]-89.99, "S"));
-          lines = lines.concat(getLine(type, cfg.center[1]+89.99, "N"));
+          lines = lines.concat(getLine(type, sky.cfg.center[1]-89.99, "S"));
+          lines = lines.concat(getLine(type, sky.cfg.center[1]+89.99, "N"));
         } else {
 					// TODO: hemi
-          lines = lines.concat(getLine(type, cfg.center[0]-179.99, "E"));
-          lines = lines.concat(getLine(type, cfg.center[0]+179.99, "W"));
+          lines = lines.concat(getLine(type, sky.cfg.center[0]-179.99, "E"));
+          lines = lines.concat(getLine(type, sky.cfg.center[0]+179.99, "W"));
         }
         break;
       default: if (isNumber(loc[i])) {
@@ -155,7 +157,7 @@ function getLine(type, loc, orient) {
       tp = type,
       res = [],
       lr = loc;
-  if (cfg.transform === "equatorial" && tp === "lon") tp = "ra";
+  if (sky.cfg.transform === "equatorial" && tp === "lon") tp = "ra";
   
   if (tp === "ra") {
     min = 0; max = 23; step = 1;

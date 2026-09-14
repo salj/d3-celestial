@@ -161,9 +161,16 @@ var settings = {
     nameStyle: { fill: "#cccccc", font: "14px 'Lucida Sans Unicode', 'DejaVu Sans', sans-serif", align: "right", baseline: "top" },
     namesType: "en"  // Language in which the name is displayed, options desig, ar, cn, en, fr, de, gr, il, in, it, jp, lat, ru, es
   },
-  set: function(cfg) {  // Override defaults with values of cfg
+  // The `base` parameter is what makes instances possible: without it every
+  // call started from the module-level globalConfig, so a second map inherited
+  // the first one's settings (upstream #96, #131). Given a base, it starts from
+  // that and does not write back to the global either — so two maps cannot see
+  // into each other's configuration. Without a base the original behaviour
+  // stands, so that Celestial.settings() keeps working.
+  set: function(cfg, base) {  // Override defaults with values of cfg
     var prop, key, config = {}, res = {};
-    if (Object.entries(globalConfig).length === 0) Object.assign(config, this);
+    if (base) Object.assign(config, base);
+    else if (Object.entries(globalConfig).length === 0) Object.assign(config, this);
     else Object.assign(config, globalConfig);
     if (!cfg) return config; 
     for (prop in config) {
@@ -191,12 +198,15 @@ var settings = {
     res.constellations.lineStyle.opacity = arrayfy(res.constellations.lineStyle.opacity);
     res.constellations.lineStyle.stroke = arrayfy(res.constellations.lineStyle.stroke);
     
-    Object.assign(globalConfig, res);
+    if (!base) Object.assign(globalConfig, res);
     return res;
   },
-  applyDefaults: function(cfg) {
+  applyDefaults: function(cfg, base) {
     var res = {};
-    Object.assign(res, globalConfig);
+    // In the chain this is called on the result of set(), so `this` is the
+    // already-merged configuration. The standalone branch has to continue from
+    // there — starting from globalConfig would discard the caller's settings.
+    Object.assign(res, base ? this : globalConfig);
     // Nothing works without these
     res.stars.size = res.stars.size || 7;  
     res.stars.exponent = res.stars.exponent || -0.28;
@@ -265,7 +275,7 @@ var settings = {
     res.constellations.lineStyle.opacity = arrayfy(res.constellations.lineStyle.opacity);
     res.constellations.lineStyle.stroke = arrayfy(res.constellations.lineStyle.stroke);
 
-    Object.assign(globalConfig, res);
+    if (!base) Object.assign(globalConfig, res);
     return res; 
   }
 };

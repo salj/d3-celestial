@@ -1,15 +1,21 @@
 import * as d3 from "./d3.js";
-import { parentElement } from "./celestial.js";
+
 import { formats, settings } from "./config.js";
 import { datetimepicker } from "./datetimepicker.js";
-import { $form, enable, showAdvanced, testNumber } from "./form.js";
+import { testNumber } from "./form.js";
 import { horizontal } from "./horizontal.js";
 import { Celestial } from "./core.js";
 import { Round, has, hasParent, isArray, isNumber, isValidDate, loadJson, pad, styles_ } from "./util.js";
 
 var geoInfo = null;
 
-function geo(cfg) {
+// Observer location and time controls for one map. It receives the instance
+// because its input fields live on that map's settings form.
+function geo(sky) {
+  var cfg = sky.cfg;
+  var $form = sky.form.$form,
+      enable = sky.form.enable,
+      showAdvanced = sky.form.showAdvanced;
   var dtFormat = d3.timeFormat("%Y-%m-%d %H:%M:%S"),
       // in v3 the formatter could also parse; in v7 that is a separate function
       dtParse = d3.timeParse("%Y-%m-%d %H:%M:%S"),
@@ -19,9 +25,9 @@ function geo(cfg) {
       localZone = -date.getTimezoneOffset(),
       timeZone = localZone,
       config = settings.set(cfg),
-      frm = d3.select(parentElement + " ~ #celestial-form form").insert("div", "div#general").attr("id", "loc");
+      frm = d3.select(sky.parentElement + " ~ #celestial-form form").insert("div", "div#general").attr("id", "loc");
 
-  var dtpick = new datetimepicker(config, function(date, tz) { 
+  var dtpick = new datetimepicker(sky, function(date, tz) { 
     $form("datetime").value = dateFormat(date, tz); 
     timeZone = tz;
     go(); 
@@ -169,7 +175,7 @@ function geo(cfg) {
     config.planets.symbolType = $form("planets-symbolType").value;    
     enable($form("planets-show"));
 
-    Celestial.apply(config);
+    sky.apply(config);
   }
 
   function go() {
@@ -181,7 +187,7 @@ function geo(cfg) {
 
     date = dtParse($form("datetime").value.slice(0,-6));
 
-    //Celestial.apply(config);
+    //sky.apply(config);
 
     if (!isNaN(lon) && !isNaN(lat)) {
       if (lat !== geopos[0] || lon !== geopos[1]) {
@@ -197,9 +203,9 @@ function geo(cfg) {
       zenith = Celestial.getPoint(horizontal.inverse(dtc, [90, 0], geopos), config.transform);
       zenith[2] = 0;
       if (config.follow === "zenith") {
-        Celestial.rotate({center:zenith});
+        sky.rotate({center:zenith});
       } else {
-        Celestial.redraw();
+        sky.redraw();
       }
     }
   }
@@ -236,9 +242,9 @@ function geo(cfg) {
     }); 
   }
 
-  Celestial.dateFormat = dateFormat;
+  sky.dateFormat = dateFormat;
   
-  Celestial.date = function (dt, tz) { 
+  sky.date = function (dt, tz) { 
     if (!dt) return date;  
     if (isValidTimezone(tz)) timeZone = tz;
     Object.assign(config, settings.set());
@@ -247,7 +253,7 @@ function geo(cfg) {
     $form("datetime").value = dateFormat(dt, timeZone); 
     go();
   };
-  Celestial.timezone = function (tz) { 
+  sky.timezone = function (tz) { 
     if (!tz) return timeZone;  
     if (isValidTimezone(tz)) timeZone = tz;
     Object.assign(config, settings.set());
@@ -255,8 +261,8 @@ function geo(cfg) {
     $form("datetime").value = dateFormat(date, timeZone); 
     go();
   };
-  Celestial.position = function () { return geopos; };
-  Celestial.location = function (loc, tz) {
+  sky.position = function () { return geopos; };
+  sky.location = function (loc, tz) {
     if (!loc || loc.length < 2) return geopos;
     if (isValidLocation(loc)) {
       geopos = loc.slice();
@@ -267,7 +273,7 @@ function geo(cfg) {
     }
   };
   //{"date":dt, "location":loc, "timezone":tz}
-  Celestial.skyview = function (cfg) {
+  sky.skyview = function (cfg) {
     if (!cfg) return {"date": date, "location": geopos, "timezone": timeZone};
     var valid = false;
     if (dtpick.isVisible()) dtpick.hide();
@@ -289,14 +295,14 @@ function geo(cfg) {
         return;
       }
     }
-    //Celestial.updateForm();
+    //sky.updateForm();
     if (valid === false) return {"date": date, "location": geopos, "timezone": timeZone};
     if (config.follow === "zenith") go();
-    else Celestial.redraw();
+    else sky.redraw();
   };  
-  Celestial.dtLoc = Celestial.skyview;
-  Celestial.zenith = function () { return zenith; };
-  Celestial.nadir = function () {
+  sky.dtLoc = sky.skyview;
+  sky.zenith = function () { return zenith; };
+  sky.nadir = function () {
     var b = -zenith[1],
         l = zenith[0] + 180;
     if (l > 180) l -= 360;    
@@ -304,7 +310,7 @@ function geo(cfg) {
   };
 
   if (has(config, "formFields") && (config.location === true || config.formFields.location === true)) {
-    styles_(d3.select(parentElement + " ~ #celestial-form").select("#location"), {"display": "inline-block"});
+    styles_(d3.select(sky.parentElement + " ~ #celestial-form").select("#location"), {"display": "inline-block"});
   }
   //only if appropriate
   if (isValidLocation(geopos) && (config.location === true || config.formFields.location === true) && config.follow === "zenith")

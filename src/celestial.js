@@ -3,34 +3,104 @@ import { geoZoom } from "../lib/geo-zoom.js";
 import { hasCallback } from "./add.js";
 import { Canvas } from "./canvas.js";
 import { arrayfy, bvcolor, formats, projections, settings } from "./config.js";
-import { fldEnable, form, listConstellations, setCenter } from "./form.js";
+import { form } from "./form.js";
+import { exportSVG } from "./svg.js";
 import { getConstellationList, getData, getGridValues, getMwbackground, getPlanet, getPlanets } from "./get.js";
 import { geo } from "./location.js";
 import { Celestial } from "./core.js";
 import { poles, projectionTween } from "./projection.js";
 import { euler, getAngles, halfπ, transformDeg } from "./transform.js";
-import { $, Round, has, interpolateAngle, isArray, isNumber, loadJson, px } from "./util.js";
+import { Round, has, interpolateAngle, isArray, isNumber, loadJson, px } from "./util.js";
 
 var ANIMDISTANCE = 0.035,  // Rotation animation threshold, ~2deg in radians
     ANIMSCALE = 1.4,       // Zoom animation threshold, scale factor
     ANIMINTERVAL_R = 2000, // Rotation duration scale in ms
     ANIMINTERVAL_P = 2500, // Projection duration in ms
-    ANIMINTERVAL_Z = 1500, // Zoom duration scale in ms
-    zoomextent = 10,       // Default maximum extent of zoom (max/min)
-    zoomlevel = 1;         // Default zoom level, 1 = 100%
+    ANIMINTERVAL_Z = 1500; // Projection duration in ms
 
-var cfg, mapProjection, parentElement, zoom, map, circle, daylight, starnames = {}, dsonames = {};
+// The most recently created map.
+//
+// Kept only for the few places that still need a "current" map. Drawing itself
+// runs entirely on per-instance state, which is what allows several independent
+// maps on one page (upstream #96, #131).
+export var current = null;
 
-// Show it all, with the given config, otherwise with default settings
-Celestial.display = function(config) {
+// One sky-map instance.
+//
+// The body is unchanged from the original `Celestial.display`: that was already
+// written as a constructor (it ends with `this.clip = ...`, `this.rotate = ...`),
+// only it was called as `Celestial.display(...)` — so `this` was the global
+// object itself. That is what limited a page to one map (upstream #96, #131).
+// As a class the interface is the same, but every call gets its own `this`.
+export class SkyMap {
+  // config: the usual settings object.
+  // options.standalone: when true the map is built ONLY from the defaults and
+  //   the config passed in, not from the accumulated global settings — this is
+  //   what several independent maps need. Without it the original behaviour
+  //   stands.
+  constructor(config, options) {
   var animationID,
-      container = Celestial.container,
+      container = null,
       animations = [], 
       current = 0, 
-      repeat = false;
-  
+      repeat = false,
+      zoomextent = 10,       // Default maximum extent of zoom (max/min)
+      zoomlevel = 1;         // Default zoom level, 1 = 100%
+
+  // Per-instance state. These used to be module-level variables, which is why
+  // every map on a page shared them.
+  var cfg, mapProjection, parentElement, zoom, map, circle, daylight,
+      starnames = {}, dsonames = {};
+
+  var base = (options && options.standalone) ? settings : undefined;
+
+  // The variables below are REASSIGNED during drawing (cfg = cfg.set(...),
+  // mapProjection = projectionTween(…), container = …append("container")).
+  // With a plain assignment the instance would keep the stale value — for
+  // example Celestial.mapProjection would be out of date after a projection
+  // change. A getter always exposes the current internal state.
+  var instance = this;
+
+  // Layers added with Celestial.add() draw through the GLOBAL Celestial object
+  // (Celestial.container, .context, .mapProjection …) — that is how upstream's
+  // examples are written, and the interface upstream had from the start, because
+  // there `this` inside display() WAS the global object.
+  //
+  // Here the global only receives that interface once display() has copied it
+  // off the finished instance. A redraw that runs while this constructor is
+  // still executing — the zoom behaviour triggers one — would therefore call
+  // user layers against a global whose container is still null. So they stay
+  // switched off until the constructor is done; display() draws them right
+  // after it has published the interface.
+  var layersEnabled = false;
+
+  // Element lookup inside this map's own parent element. This used to live in
+  // util.js, reached through a shared "current map" pointer — so two maps would
+  // have found each other's elements.
+  function $(id) { return document.querySelector(parentElement + " #" + id); }
+  ["cfg", "mapProjection", "container", "map", "parentElement", "starnames", "dsonames"]
+    .forEach(function (name_) {
+      Object.defineProperty(instance, name_, {
+        get: function () {
+          switch (name_) {
+            case "cfg": return cfg;
+            case "mapProjection": return mapProjection;
+            case "container": return container;
+            case "map": return map;
+            case "parentElement": return parentElement;
+            case "starnames": return starnames;
+            default: return dsonames;
+          }
+        },
+        enumerable: true, configurable: true
+      });
+    });
+
+  current = this;
+
+
   //Mash config with default settings, todo: if globalConfig exists, make another one
-  cfg = settings.set(config).applyDefaults(config);
+  cfg = settings.set(config, base).applyDefaults(config, base);
   if (isNumber(cfg.zoomextend)) zoomextent = cfg.zoomextend;
   if (isNumber(cfg.zoomlevel)) zoomlevel = cfg.zoomlevel;
   //if (cfg.disableAnimations) ANIMDISTANCE = Infinity;
@@ -69,6 +139,15 @@ Celestial.display = function(config) {
      
   if (parentElement !== "body") parent.style.height = px(canvasheight);
   
+  // This map's own settings-form interface. One per instance, so that two
+  // interactive maps on a page do not write each other's fields.
+  //
+  // It has to exist this early: setting up the zoom (below) immediately triggers
+  // a redraw(), which calls formApi.setCenter(). The field lookups themselves
+  // are guarded against a missing form, but the object must be there.
+  var formApi = form(this);
+  this.form = formApi;
+
   mapProjection = Celestial.projection(cfg.projection).rotate(rotation).translate([canvaswidth/2, canvasheight/2]).scale(scale * zoomlevel);
     
   zoom = geoZoom().projection(mapProjection).center([canvaswidth/2, canvasheight/2]).scaleExtent([scale, scale * zoomextent]).on("zoom.redraw", redraw);
@@ -89,8 +168,12 @@ Celestial.display = function(config) {
   map = d3.geoPath().projection(mapProjection).context(context);
    
   //parent div with id #celestial-map or body
-  if (container) container.selectAll(parentElement + " *").remove();
-  else container = d3.select(parentElement).append("container");
+  // Look for the container inside THIS map's parent. It used to take over the
+  // global Celestial.container, so a second map would have drawn into the
+  // rajzolt volna (#96, #131).
+  container = d3.select(parentElement).select("container");
+  if (container.empty()) container = d3.select(parentElement).append("container");
+  else container.selectAll(parentElement + " *").remove();
 
   if (cfg.interactive) {
     canvas.call(zoom);
@@ -115,17 +198,16 @@ Celestial.display = function(config) {
   circle = d3.geoCircle().radius(90);  
   daylight = d3.geoCircle().radius(179.9);
 
-  form(cfg);
   
   if ($("error") === null) d3.select("body").append("div").attr("id", "error");
 
-  if ($("loc") === null) geo(cfg);
+  if ($("loc") === null) geo(this);
   else if (cfg.location === true && cfg.follow === "zenith") rotate({center: Celestial.zenith()});
 
   if (cfg.location === true || cfg.formFields.location === true) {
     d3.select(parentElement + " #location").style("display", "inline-block");
-    fldEnable("horizon-show", projectionSetting.clip);
-    fldEnable("daylight-show", !projectionSetting.clip);
+    formApi.fldEnable("horizon-show", projectionSetting.clip);
+    formApi.fldEnable("daylight-show", !projectionSetting.clip);
   }
 
   function load() {
@@ -143,12 +225,12 @@ Celestial.display = function(config) {
         container.append("path").datum(graticule).attr("class", "graticule"); 
         if (has(cfg.lines.graticule, "lon") && cfg.lines.graticule.lon.pos.length > 0) 
           container.selectAll(parentElement + " .gridvalues_lon")
-            .data(getGridValues("lon", cfg.lines.graticule.lon.pos))
+            .data(getGridValues("lon", cfg.lines.graticule.lon.pos, instance))
             .enter().append("path")
             .attr("class", "graticule_lon"); 
         if (has(cfg.lines.graticule, "lat") && cfg.lines.graticule.lat.pos.length > 0) 
           container.selectAll(parentElement + " .gridvalues_lat")
-            .data(getGridValues("lat", cfg.lines.graticule.lat.pos))
+            .data(getGridValues("lat", cfg.lines.graticule.lat.pos, instance))
             .enter().append("path")
             .attr("class", "graticule_lat"); 
       } else {
@@ -189,7 +271,7 @@ Celestial.display = function(config) {
          .enter().append("text")
          .attr("class", "constname");
          
-      Celestial.constellations = getConstellationList(con);
+      instance.constellations = getConstellationList(con);
       redraw();
     });
 
@@ -218,7 +300,7 @@ Celestial.display = function(config) {
          .enter().append("path")
          .attr("class", "constline");
 
-      listConstellations();
+      formApi.listConstellations();
       redraw();
     });
     
@@ -267,7 +349,7 @@ Celestial.display = function(config) {
     loadJson(path + filename("planets"), function(error, json) {
       if (error) return console.warn(error);
       
-      var pl = getPlanets(json, cfg.transform);
+      var pl = getPlanets(json, instance);
 
       container.selectAll(parentElement + " .planets")
          .data(pl)
@@ -348,6 +430,11 @@ Celestial.display = function(config) {
     // Orientation interpolator
     if (o === 0) oTween = function () { return rot[2]; };
     else oTween = interpolateAngle(cFrom[2], cfg.center[2]);
+    // Round(d, 2) can be at most 3.14 (pi rounded), so the original condition
+    // "d > 3.14" was never satisfied — the guard failed to fire in precisely the
+    // one case it was written for. Nudge the starting point rather than the
+    // target: that keeps the endpoint exact and does not accumulate over
+    // repeated calls. (upstream #157)
     if (d >= 3.14) cFrom = [cFrom[0] + 0.01, cFrom[1], cFrom[2]]; //180deg turn is ambiguous
     cfg.orientationfixed = false;  
     // Rotation interpolator
@@ -417,8 +504,8 @@ Celestial.display = function(config) {
     }
     
     if (cfg.location || cfg.formFields.location) { 
-      fldEnable("horizon-show", prj.clip);
-      fldEnable("daylight-show", !prj.clip);
+      formApi.fldEnable("horizon-show", prj.clip);
+      formApi.fldEnable("daylight-show", !prj.clip);
     }
     
     mapProjection = projectionTween(prjFrom, prjTo);
@@ -476,7 +563,7 @@ Celestial.display = function(config) {
     }
     cfg.center = [-rot[0], -rot[1], rot[2]];
     
-    setCenter(cfg.center, cfg.transform);
+    formApi.setCenter(cfg.center, cfg.transform);
     clear();
     
     drawOutline();
@@ -650,14 +737,14 @@ Celestial.display = function(config) {
       });
     }
     
-    if (Celestial.data.length > 0) { 
+    if (layersEnabled && Celestial.data.length > 0) { 
       Celestial.data.forEach( function(d) {
         d.redraw();
       });
     }
     
     if ((cfg.location || cfg.formFields.location) && cfg.daylight.show && projectionSetting.clip) {
-      var sol = getPlanet("sol");
+      var sol = getPlanet("sol", undefined, instance);
       if (sol) {
         var up = Celestial.zenith(),
             solpos = sol.ephemeris.pos,
@@ -986,11 +1073,13 @@ Celestial.display = function(config) {
 
   
   // Exported objects and functions for adding data
-  this.container = container;
+  //
   this.clip = clip;
-  this.map = map;
-  this.mapProjection = mapProjection;
   this.context = context;
+  // Exports this map. It calls the module function directly rather than
+  // Celestial.exportSVG: the backwards-compatible interface copies this very
+  // method onto itself, so going through it would recurse.
+  this.exportSVG = function (callback) { return exportSVG(instance, callback); };
   this.metrics = function() {
     return {"width": width, "height": height, "margin": margin, "scale": mapProjection.scale()};
   };
@@ -1058,9 +1147,47 @@ Celestial.display = function(config) {
     this.date = function() { console.log("Celestial.date() needs config.location = true to work." ); };
   */
   load();
+  layersEnabled = true;
+  }
+}
+
+// Backwards-compatible interface.
+//
+// `Celestial.display(config)` behaves exactly as before: it creates an instance
+// and spreads that instance's interface onto itself. The difference is that the
+// instance is now also returned — `var sky = Celestial.display(cfg)` — which is
+// how several maps on one page become possible.
+//
+// Two names receive their value AFTER loading (the constellation list, and the
+// selected constellation), by which time the global interface has already been
+// copied. Those two get forwarding accessors, so that Celestial.constellations
+// keeps working the way it used to.
+["constellations", "constellation"].forEach(function (name_) {
+  Object.defineProperty(Celestial, name_, {
+    get: function () { return current ? current[name_] : undefined; },
+    set: function (value_) { if (current) current[name_] = value_; },
+    enumerable: true, configurable: true
+  });
+});
+
+Celestial.display = function (config) {
+  var instance = new SkyMap(config);
+  // Copy property descriptors rather than values: several properties on the
+  // instance are getters (cfg, mapProjection, container and so on), and copying
+  // by value would leave Celestial.mapProjection stale after a projection change.
+  Object.defineProperties(instance, {});
+  var descriptors = Object.getOwnPropertyDescriptors(instance);
+  for (var key_ in descriptors) {
+    // do not overwrite the names that have forwarding accessors
+    if (key_ === "constructor" || key_ === "constellations" || key_ === "constellation") continue;
+    Object.defineProperty(Celestial, key_, descriptors[key_]);
+  }
+  // Now that the global interface exists, the layers can be drawn.
+  instance.redraw();
+  return instance;
 };
  
 // The CommonJS export has been taken over by the build: build/celestial.cjs and
 // build/celestial.mjs expose Celestial in whichever form the host needs.
 
-export { Celestial, cfg, dsonames, parentElement, starnames };
+export { Celestial };

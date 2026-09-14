@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>d3-celestial — two interactive maps with their own settings forms</title>
+<link rel="stylesheet" href="../celestial.css">
+<style>
+  body { font: 14px sans-serif; margin: 16px; }
+  .fel { border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin-bottom: 18px; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  #statusEl { font: 12px monospace; white-space: pre-wrap; background: #f4f4f4; padding: 8px; }
+</style>
+</head>
+<body>
+<h1>Two interactive maps, each with its own settings form</h1>
+<p>
+  The last piece of upstream #96 and #131: until now the settings form, the location
+  handling and the SVG export all worked off a shared "current map" pointer. Now every map
+  gets its own — the lower form drives the lower map, the upper one the upper map.
+</p>
+
+<div class="fel"><h2>A — orthographic</h2><div id="map-a"></div></div>
+<div class="fel"><h2>B — mollweide</h2><div id="map-b"></div></div>
+<div id="statusEl">Loading…</div>
+
+<script type="module">
+import { SkyMap } from "../build/celestial.mjs";
+
+const COMMON = {
+  width: 460, datapath: "../harness/data/",
+  interactive: true, form: true, controls: true, location: false,
+  follow: "center", disableAnimations: true, orientationfixed: false,
+  date: new Date(Date.UTC(2026, 7, 26, 20, 0, 0)),
+  stars: { limit: 5 }, dsos: { show: true, limit: 5 },
+  planets: { show: false }, mw: { show: true },
+  constellations: { names: false, lines: true, bounds: false },
+  lines: { graticule: { show: true } },
+  formFields: { location: false, general: true, stars: true, dsos: true,
+                constellations: true, lines: true, other: true, download: true }
+};
+
+const a = new SkyMap(Object.assign({}, COMMON, {
+  container: "map-a", projection: "orthographic", center: [180, 55, 0] }), { standalone: true });
+const b = new SkyMap(Object.assign({}, COMMON, {
+  container: "map-b", projection: "mollweide", center: [0, 0, 0] }), { standalone: true });
+
+window.__a = a; window.__b = b;
+
+setTimeout(function () {
+  const urlapA = document.querySelector("#map-a ~ #celestial-form");
+  const urlapB = document.querySelector("#map-b ~ #celestial-form");
+  document.getElementById("statusEl").textContent =
+    "A: " + a.cfg.projection + ", scale " + Math.round(a.mapProjection.scale()) + "\n" +
+    "B: " + b.cfg.projection + ", scale " + Math.round(b.mapProjection.scale()) + "\n" +
+    "separate form interface: " + (a.form !== b.form) +
+      " · separate form element: " + (!!urlapA && !!urlapB && urlapA !== urlapB) +
+      " · separate SVG export: " + (a.exportSVG !== b.exportSVG);
+}, 5000);
+</script>
+</body>
+</html>

@@ -29,6 +29,13 @@ function exportSVG(fname) {
   if (proj.clip) {
     projection.clipAngle(90);
   }
+  // The output has a fixed size, so anything outside the page is invisible
+  // anyway — but without clipping, non-finite coordinates end up in the paths.
+  // Mercator's background circle, for instance, includes the poles, where the
+  // projection goes to plus or minus infinity, and `Infinity` is invalid in an
+  // SVG `d` attribute: the browser discards the whole path. clipExtent is a
+  // post-clip, so it coexists with clipAngle.
+  projection.clipExtent([[0, 0], [m.width, m.height]]);
   circle = d3.geoCircle().radius(179.95).center(center);
 
   svg.attr("width", m.width).attr("height", m.height);

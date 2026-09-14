@@ -164,8 +164,8 @@ var Trig = {
   tanh: function (val) { return 2.0 / (1.0 + Math.exp(-2.0 * val)) - 1.0; },
   asinh: function (val) { return Math.log(val + Math.sqrt(val * val + 1)); },
   acosh: function (val) { return Math.log(val + Math.sqrt(val * val - 1)); },
-  normalize0: function(val) {  return ((val + Math.PI*3) % (Math.PI*2)) - Math.PI; },
-  normalize: function(val) {  return ((val + Math.PI*2) % (Math.PI*2)); },  
+  normalize0: function(val) { return (((val + Math.PI) % (Math.PI*2)) + Math.PI*2) % (Math.PI*2) - Math.PI; },
+  normalize: function(val) { return ((val % (Math.PI*2)) + Math.PI*2) % (Math.PI*2); },
 
   cartesian: function(p) {
     var ϕ = p[0], θ = halfπ - p[1], r = p[2];

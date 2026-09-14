@@ -483,10 +483,18 @@ Celestial.display = function(config) {
     
     //Draw all types of objects on the canvas
     if (cfg.mw.show) { 
-      container.selectAll(parentElement + " .mw").each(function(d) { setStyle(cfg.mw.style); map(d); context.fill(); });
+      container.selectAll(parentElement + " .mw").each(function(d) {
+        setStyle(cfg.mw.style); map(d);
+        if (wrongWinding(false)) { setStyle(cfg.mw.style); map(reversed(d)); }
+        context.fill();
+      });
       // paint mw-outside in background color
       if (cfg.transform !== "supergalactic" && cfg.background.opacity > 0.95)
-        container.selectAll(parentElement + " .mwbg").each(function(d) { setStyle(cfg.background); map(d); context.fill(); });
+        container.selectAll(parentElement + " .mwbg").each(function(d) {
+          setStyle(cfg.background); map(d);
+          if (wrongWinding(true)) { setStyle(cfg.background); map(reversed(d)); }
+          context.fill();
+        });
     }
     
     for (var key in cfg.lines) {
@@ -711,6 +719,45 @@ Celestial.display = function(config) {
   
   function clip(coords) {
     return projectionSetting.clip && d3.geoDistance(cfg.center, coords) > halfπ ? 0 : 1;
+  }
+
+  // At some rotations d3-geo fills the COMPLEMENT of the Milky Way polygon: the
+  // map greys out and the Milky Way shows black. Typically when the band moves
+  // towards the rim of the disc. Deciding the interior of a spherical polygon is
+  // numerically fragile there — the ol1 outline is a thin shell: an outer ring of
+  // area 1.697*pi containing a hole of 1.623*pi, the difference between them
+  // being the 0.069*pi Milky Way band.
+  //
+  // There is however one point whose correct answer we know for certain: the
+  // galactic pole. The Milky Way outlines are bands around the galactic equator,
+  // so the pole lies OUTSIDE every one of them — and INSIDE their complement
+  // (mwbg). The two poles are antipodal, so with a clipped projection exactly
+  // one of them is visible.
+  //
+  // We ask the already-built path (isPointInPath), and when its verdict
+  // contradicts what we know, we redraw with the rings reversed.
+  function galacticPole() {
+    var p = transformDeg(poles.galactic, euler[cfg.transform]);
+    if (!clip(p)) p = [p[0] + 180, -p[1]];   // the other pole is the visible one
+    return mapProjection(p);
+  }
+
+  function wrongWinding(expected) {
+    var pt = galacticPole();
+    if (!pt || !isFinite(pt[0]) || !isFinite(pt[1])) return false;
+    // isPointInPath expects the point in device coordinates, while the context
+    // has setTransform(pixelRatio, ...) applied — hence the multiplication.
+    return context.isPointInPath(pt[0] * pixelRatio, pt[1] * pixelRatio) !== expected;
+  }
+
+  function reversed(d) {
+    if (!d.reversedCopy) {
+      d.reversedCopy = { type: d.type, geometry: { type: d.geometry.type,
+        coordinates: d.geometry.coordinates.map(function (pol) {
+          return pol.map(function (ring) { return ring.slice().reverse(); });
+        })}};
+    }
+    return d.reversedCopy;
   }
 
   function setStyle(s) {

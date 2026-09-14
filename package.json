@@ -35,6 +35,7 @@
   "module": "build/celestial.mjs",
   "exports": {
     ".": {
+      "types": "types/celestial.d.ts",
       "import": "./build/celestial.mjs",
       "require": "./build/celestial.cjs"
     },
@@ -47,12 +48,14 @@
     "celestial.css",
     "images",
     "lib",
-    "src"
+    "src",
+    "types/celestial.d.ts"
   ],
   "scripts": {
     "build": "node build.mjs",
     "prepare": "node build.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "types": "tsc -p types/check/tsconfig.json"
   },
   "dependencies": {
     "d3-dispatch": "^3.0.1",
@@ -74,5 +77,6 @@
     "esbuild": "^0.25.0",
     "playwright": "^1.62.1",
     "typescript": "^7.0.2"
-  }
+  },
+  "types": "types/celestial.d.ts"
 }

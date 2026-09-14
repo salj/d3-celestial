@@ -943,7 +943,11 @@ Celestial.display = function(config) {
     var w = 0;
     if (isNumber(cfg.width) && cfg.width > 0) w = cfg.width;
     else if (parent) w = parent.getBoundingClientRect().width - margin[0] *2;
-    else w = window.getBoundingClientRect().width - margin[0]*2;
+    // No container element: the map goes into the body, so the body's width is
+    // what counts. This originally read window.getBoundingClientRect(), which is
+    // not a method that exists — with neither a container nor an explicit width
+    // the map did not render at all, display() threw.
+    else w = document.body.getBoundingClientRect().width - margin[0]*2;
     //if (isNumber(cfg.background.width)) w -= cfg.background.width;
     return w;
   }

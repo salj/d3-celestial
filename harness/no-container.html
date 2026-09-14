@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>d3-celestial — without a container and without a width</title>
+<style>body { margin: 0; background: #000; }</style>
+</head>
+<body>
+<!-- Deliberately there is NO #celestial-map element and no given width: in that
+     case the library draws into the body, and it has to work out the width for
+     itself. getWidth() used to handle this branch with a call to the
+     non-existent window.getBoundingClientRect(). -->
+<script src="../build/celestial.js"></script>
+<script>
+window.__hiba = null;
+try {
+  Celestial.display({
+    datapath: "../harness/data/",
+    interactive: false, form: false, controls: false, location: false,
+    follow: "center", disableAnimations: true,
+    stars: { limit: 5 }, dsos: { show: false }, planets: { show: false },
+    constellations: { names: false, lines: true, bounds: false },
+    mw: { show: true }, lines: { graticule: { show: true } }
+  });
+} catch (e) { window.__hiba = e.message; }
+</script>
+</body>
+</html>

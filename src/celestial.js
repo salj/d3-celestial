@@ -115,7 +115,7 @@ export class SkyMap {
   if (base) cfg = clonePlain(cfg);
   cfg = cfg.applyDefaults(config, base);
   if (isNumber(cfg.zoomextend)) zoomextent = cfg.zoomextend;
-  if (isNumber(cfg.zoomlevel)) zoomlevel = cfg.zoomlevel;
+  if (isNumber(cfg.zoomlevel)) zoomlevel = Math.max(1, Math.min(zoomextent, +cfg.zoomlevel));
   //if (cfg.disableAnimations) ANIMDISTANCE = Infinity;
 
   var parent = document.getElementById(cfg.container);
@@ -164,8 +164,7 @@ export class SkyMap {
   mapProjection = Celestial.projection(cfg.projection).rotate(rotation).translate([canvaswidth/2, canvasheight/2]).scale(scale * zoomlevel);
     
   zoom = geoZoom().projection(mapProjection).center([canvaswidth/2, canvasheight/2]).scaleExtent([scale, scale * zoomextent]).on("zoom.redraw", redraw);
-  // Set initial zoom level
-  scale *= zoomlevel;
+  // scale remains the unzoomed reference for symbol adaptation.
 
   var canvas = d3.select(parentElement).selectAll("canvas"),
       culture = (cfg.culture !== "" && cfg.culture !== "iau") ? cfg.culture : "";
@@ -192,7 +191,7 @@ export class SkyMap {
     canvas.call(zoom);
     d3.select(parentElement).on('dblclick', function () { zoomBy(1.5625); return false; });
   } else {
-    canvas.attr("style", "cursor: default!important");
+    canvas.style("cursor", "default", "important");
   }
 
   setClip(projectionSetting.clip);
@@ -477,8 +476,12 @@ export class SkyMap {
   }
   
   function resize(set) {
-    width = getWidth();
-    if (cfg.width === width && !set) return;
+    var nextWidth = getWidth();
+    var nextPixelRatio = window.devicePixelRatio || 1;
+    if (nextWidth === width && nextPixelRatio === pixelRatio && !set) return;
+    zoomlevel = mapProjection.scale() / scale;
+    width = nextWidth;
+    pixelRatio = nextPixelRatio;
     height = width/ratio;
     canvaswidth = isNumber(cfg.background.width) ? width + cfg.background.width : width;
     canvasheight = Math.round(canvaswidth / ratio);
@@ -489,16 +492,16 @@ export class SkyMap {
     zoom.scaleExtent([scale, scale * zoomextent]).scale(scale * zoomlevel);
     mapProjection.translate([canvaswidth/2, canvasheight/2]).scale(scale * zoomlevel);
     if (parent) parent.style.height = px(height);
-    scale *= zoomlevel;
     redraw();
   }
 
   function reproject(config) {
     var prj = getProjection(config.projection, config.projectionRatio);
     if (!prj) return;
+    zoomlevel = mapProjection.scale() / scale;
     
     var rot = mapProjection.rotate(), ctr = mapProjection.center(), sc = mapProjection.scale(), ext = zoom.scaleExtent(), clip = [],
-        prjFrom = Celestial.projection(cfg.projection).center(ctr).translate([canvaswidth/2, canvasheight/2]).scale([ext[0]]),
+        prjFrom = Celestial.projection(cfg.projection).center(ctr).translate([canvaswidth/2, canvasheight/2]).scale(sc),
         interval = ANIMINTERVAL_P, 
         delay = 0, clipTween = null,
         rTween = d3.interpolateNumber(ratio, prj.ratio);
@@ -510,15 +513,9 @@ export class SkyMap {
       clipTween = d3.interpolateNumber(projectionSetting.clip ? 90 : 180, prj.clip ? 90 : 180); // Clipangle from - to
     } else*/ setClip(prj.clip);
     
-    var prjTo = Celestial.projection(config.projection).center(ctr).translate([canvaswidth/2, canvaswidth/prj.ratio/2]).scale([prj.scale * width/1024]);
+    var prjTo = Celestial.projection(config.projection).center(ctr).translate([canvaswidth/2, canvaswidth/prj.ratio/2]).scale(prj.scale * width/1024 * zoomlevel);
     var bAdapt = cfg.adaptable;
 
-    if (sc > ext[0]) {
-      delay = zoomBy(0.1);
-      setTimeout(reproject, delay, config);
-      return delay + interval;
-    }
-    
     if (cfg.location || cfg.formFields.location) { 
       formApi.fldEnable("horizon-show", prj.clip);
       formApi.fldEnable("daylight-show", !prj.clip);
@@ -535,6 +532,7 @@ export class SkyMap {
         else*/setClip(prj.clip);
         ratio = rTween(_);
         height = width/ratio;
+        canvasheight = Math.round(canvaswidth / ratio);
         //canvas.attr("width", width).attr("height", height);
         canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height",  canvasheight * pixelRatio);
         if (parent) parent.style.height = px(canvasheight);
@@ -544,7 +542,7 @@ export class SkyMap {
       projectionSetting = prj;
       ratio = projectionSetting.ratio;
       height = width / projectionSetting.ratio;
-      canvasheight = isNumber(cfg.background.width) ? height + cfg.background.width : height;
+      canvasheight = Math.round(canvaswidth / ratio);
       scale = projectionSetting.scale * width/1024;
       //canvas.attr("width", width).attr("height", height);
       canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height", canvasheight * pixelRatio);
@@ -555,8 +553,7 @@ export class SkyMap {
       setClip(projectionSetting.clip); 
       zoom.projection(mapProjection).scaleExtent([scale, scale * zoomextent]).scale(scale * zoomlevel);
       cfg.adaptable = bAdapt;
-      scale *= zoomlevel;
-      redraw();
+        redraw();
     });
     return interval;
   }

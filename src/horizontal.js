@@ -1,7 +1,6 @@
 import { Celestial } from "./core.js";
 import { deg2rad } from "./transform.js";
 
-/* global Celestial, deg2rad */
 var horizontal = function(dt, pos, loc) {
   //dt: datetime, pos: celestial coordinates [lat,lng], loc: location [lat,lng]  
   var ha = getMST(dt, loc[1]) - pos[0];
@@ -26,9 +25,17 @@ horizontal.inverse = function(dt, hor, loc) {
   var lat = loc[0] * deg2rad;
    
   var dec = Math.asin((Math.sin(alt) * Math.sin(lat)) + (Math.cos(alt) * Math.cos(lat) * Math.cos(az)));
-  var ha = ((Math.sin(alt) - (Math.sin(dec) * Math.sin(lat))) / (Math.cos(dec) * Math.cos(lat))).toFixed(6);
+  var ha = (Math.sin(alt) - (Math.sin(dec) * Math.sin(lat))) / (Math.cos(dec) * Math.cos(lat));
   
-  ha = Math.acos(ha);
+  // Rounding error can push the quotient outside the domain of acos (at the
+  // zenith it comes out as 1+1e-16). The previous .toFixed(6) handled that only
+  // by accident, and in doing so truncated the input to six decimals — where
+  // acos is steep.
+  ha = Math.acos(Math.max(-1, Math.min(1, ha)));
+  // acos returns 0..180 degrees, so half the sky would be lost. The forward
+  // direction handles the same ambiguity (if (Math.sin(ha) > 0) az = 2*pi - az);
+  // the inverse needs its mirror image. See upstream issue #148.
+  if (Math.sin(az) > 0) ha = -ha;
   ha  = ha / deg2rad;
   
   var ra = getMST(dt, loc[1]) - ha;
@@ -75,9 +82,16 @@ function getMST(dt, lng)
 }
 
 Celestial.horizontal = horizontal;
+// Hour angle in degrees, in the range [0, 360).
+//
+// The condition was originally `ha < 180`, which is a typo: getMST returns
+// [0, 360) and so does ra, so the difference lies in (-360, 360) — it is values
+// below zero that need wrapping. With `180`, an hour angle of 100 degrees came
+// out as 460. Two lines above, horizontal() has the same normalisation written
+// correctly.
 Celestial.ha = function(dt, lng, ra) {
   var ha = getMST(dt, lng) - ra;
-  if (ha < 180) ha = ha + 360;
+  if (ha < 0) ha = ha + 360;
   return ha;
 };
 

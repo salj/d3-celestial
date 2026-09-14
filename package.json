@@ -1,39 +1,78 @@
 {
-  "name": "d3-celestial",
-  "version": "0.7.35",
-  "description": "A star map with D3.js",
-  "main": "celestial.js",
-  "directories": {
-    "test": "test"
-  },
-  "dependencies": {
-    "d3": "^3.5.17"
-  },
-  "devDependencies": {
-    "jsdom": "^16.5.0",
-    "jshint": "^2.11.1",
-    "shelljs": "^0.8.4",
-    "uglify-js": "^2.8.29"
-  },
-  "scripts": {
-    "build": "node make.js",
-    "test": "node test/celestial-test.js",
-    "jshint": "jshint src/**.js"
-  },
+  "name": "celestial-chart",
+  "version": "0.8.1",
+  "description": "Interactive celestial map for the browser — a modernised fork of d3-celestial (D3 v7, ES modules, TypeScript types, multiple maps per page)",
+  "keywords": [
+    "astronomy",
+    "star chart",
+    "sky map",
+    "celestial",
+    "constellations",
+    "planetarium",
+    "cartography",
+    "projection",
+    "d3",
+    "canvas",
+    "svg",
+    "visualization"
+  ],
+  "type": "module",
+  "license": "BSD-3-Clause",
+  "author": "Fekete László",
+  "homepage": "https://celestial.blackit.hu",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ofrohn/d3-celestial.git"
+    "url": "git+https://github.com/Fekete85/celestial-chart.git"
   },
-  "keywords": [
-    "cartography",
-    "astronomy",
-    "visualization",
-    "D3"
-  ],
-  "author": "Olaf Frohn",
-  "license": "BSD-3-Clause",
   "bugs": {
-    "url": "https://github.com/ofrohn/d3-celestial/issues"
+    "url": "https://github.com/Fekete85/celestial-chart/issues"
   },
-  "homepage": "https://github.com/ofrohn/d3-celestial"
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "main": "build/celestial.cjs",
+  "module": "build/celestial.mjs",
+  "exports": {
+    ".": {
+      "import": "./build/celestial.mjs",
+      "require": "./build/celestial.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "LICENSE",
+    "NOTICE.md",
+    "build",
+    "celestial.css",
+    "images",
+    "lib",
+    "src"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "prepare": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "d3-dispatch": "^3.0.1",
+    "d3-fetch": "^3.0.1",
+    "d3-geo": "^3.1.1",
+    "d3-geo-projection": "^4.0.0",
+    "d3-interpolate": "^3.0.1",
+    "d3-scale": "^4.0.2",
+    "d3-selection": "^3.0.0",
+    "d3-shape": "^3.2.0",
+    "d3-time-format": "^4.1.0",
+    "d3-transition": "^3.0.1",
+    "d3-zoom": "^3.0.0",
+    "versor": "^0.2.0"
+  },
+  "devDependencies": {
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
+    "esbuild": "^0.25.0",
+    "playwright": "^1.62.1",
+    "typescript": "^7.0.2"
+  }
 }

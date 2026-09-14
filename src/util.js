@@ -1,17 +1,87 @@
-/* global τ, halfπ, deg2rad, parentElement */
-function $(id) { return document.querySelector(parentElement + " #" + id); }
+import { parentElement } from "./celestial.js";
+import * as d3 from "./d3.js";
+import { deg2rad, halfπ, τ } from "./transform.js";
+
 function px(n) { return n + "px"; } 
 function Round(x, dg) { return(Math.round(Math.pow(10,dg)*x)/Math.pow(10,dg)); }
 function sign(x) { return x ? x < 0 ? -1 : 1 : 0; }
 function pad(n) { return n < 10 ? '0' + n : n; }
 
 
-function has(o, key) { return o !== null && hasOwnProperty.call(o, key); }
-function when(o, key, val) { return o !== null && hasOwnProperty.call(o, key) ? o[key] : val; }
+// The bare `hasOwnProperty` resolved through the global object; in a module
+// that is misleading, so it is spelled out.
+var hasOwn = Object.prototype.hasOwnProperty;
+function has(o, key) { return o !== null && hasOwn.call(o, key); }
+function when(o, key, val) { return o !== null && hasOwn.call(o, key) ? o[key] : val; }
 function isNumber(n) { return n !== null && !isNaN(parseFloat(n)) && isFinite(n); }
 function isArray(o) { return o !== null && Object.prototype.toString.call(o) === "[object Array]"; }
 function isObject(o) { var type = typeof o;  return type === 'function' || type === 'object' && !!o; }
 function isFunction(o) { return typeof o == 'function' || false; }
+// d3.functor was removed in v4. It did exactly one thing: turned anything that
+// was not a function into a constant function.
+function functor(o) { return isFunction(o) ? o : function() { return o; }; }
+
+// Since v5 d3.json returns a Promise instead of invoking a callback. The shape
+// of the call sites is preserved — the old (error, json) form stays — so that
+// the loading logic is unchanged and the effect of the D3 upgrade stays
+// separable from everything else.
+// d3-queue was a separate package, unmaintained since v5. This is all the
+// library uses of its interface: defer(fn) to enqueue a task, await(cb) for the
+// end. Every defer runs synchronously, before the await.
+// The v3 selection.classed({name: boolean, ...}) form was removed in v4;
+// v7 only understands a classed(names, boolean) pair.
+function classes_(sel, obj) {
+  for (var k in obj) { if (has(obj, k)) sel.classed(k, obj[k]); }
+  return sel;
+}
+
+// The same for the object form of attr and style: v3 accepted a whole property
+// map, v4+ only a (name, value) pair. Left unhandled, the call runs AS A GETTER
+// and the next link in the chain is no longer working on a selection — silently,
+// without an exception, right up to the first use.
+function attrs(sel, obj) {
+  for (var k in obj) { if (has(obj, k)) sel.attr(k, obj[k]); }
+  return sel;
+}
+
+function styles_(sel, obj) {
+  for (var k in obj) { if (has(obj, k)) sel.style(k, obj[k]); }
+  return sel;
+}
+
+function taskQueue(concurrency) {
+  var tasks = [], running = 0, next = 0, error_ = null, done = null;
+
+  function startNext() {
+    while (!error_ && running < concurrency && next < tasks.length) {
+      running++;
+      tasks[next++](function (e) {
+        running--;
+        if (e && !error_) { error_ = e; return done(error_); }
+        if (error_) return;
+        if (running === 0 && next === tasks.length) return done(null);
+        startNext();
+      });
+    }
+  }
+
+  return {
+    defer: function (fn) { tasks.push(fn); return this; },
+    await: function (cb) {
+      done = cb;
+      if (!tasks.length) cb(null);
+      else startNext();
+      return this;
+    }
+  };
+}
+
+function loadJson(url, callback) {
+  return d3.json(url).then(
+    function(json) { callback(null, json); },
+    function(error) { callback(error || new Error("failed to load: " + url)); }
+  );
+}
 function isValidDate(d) { return d && d instanceof Date && !isNaN(d); }
 function fileExists(url) {
   var http = new XMLHttpRequest();
@@ -96,10 +166,17 @@ var Trig = {
   acosh: function (val) { return Math.log(val + Math.sqrt(val * val - 1)); },
   normalize0: function(val) {  return ((val + Math.PI*3) % (Math.PI*2)) - Math.PI; },
   normalize: function(val) {  return ((val + Math.PI*2) % (Math.PI*2)); },  
+
   cartesian: function(p) {
     var ϕ = p[0], θ = halfπ - p[1], r = p[2];
     return {"x": r * Math.sin(θ) * Math.cos(ϕ), "y": r * Math.sin(θ) * Math.sin(ϕ), "z": r * Math.cos(θ)};
   },
+  // WARNING: nothing in the library calls the following four methods.
+  // `spherical` is moreover not the inverse of `cartesian`: it uses `atan`
+  // instead of `atan2` (losing the quadrant, and dividing by zero when x = 0),
+  // and the second value it returns is a polar distance, not a latitude. Left
+  // untouched because it has no callers — but no new code should build on it
+  // until somebody puts it right.
   spherical: function(p) {
     var r = Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z),
         θ = Math.atan(p.y / p.x),
@@ -137,7 +214,7 @@ function longitude(point) {
     return sign(point[0]) * ((Math.abs(point[0]) +  Math.PI) % tau -  Math.PI);
 }
 
-function poligonContains(polygon, point) {
+function polygonContains(polygon, point) {
   var lambda = longitude(point),
       phi = point[1],
       sinPhi = Math.sin(phi),
@@ -190,3 +267,8 @@ function poligonContains(polygon, point) {
 
   return (angle < -epsilon || angle < epsilon && sum < -epsilon) ^ (winding & 1);
 }
+
+export { Round, Trig, attrs, dateDiff, dateParse, taskQueue, findPos, functor, has, hasParent, interpolateAngle, isArray, isNumber, isObject, isValidDate, loadJson, classes_, pad, px, styles_ };
+
+function $(id) { return document.querySelector(parentElement + " #" + id); }
+export { $ };

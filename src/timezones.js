@@ -1,8 +1,18 @@
-/* global d3, topojson, Celestial, settings, container */
+/* NOT PART OF THE BUILD.
+ *
+ * Nothing in the library calls `timezones()`, and it is never attached to the
+ * `Celestial` object either — it was unreachable upstream as well.
+ * Modularisation made that visible: no module imports it, so the bundler leaves
+ * it out. Its `topojson` dependency would only have been in the bundle for this.
+ *
+ * Kept rather than deleted: if timezone lookup is ever needed, this is where to
+ * start. It would then have to become an ES module, with topojson-client added
+ * as a dependency.
+ */
 function timezones() {
   var cfg = settings.set(),
        world, timezone;
-  d3.json(cfg.datapath + "timezones.json", function(error, json) {
+  loadJson(cfg.datapath + "timezones.json", function(error, json) {
     world = topojson.feature(json, json.objects.timezones);
     
     Celestial.container.selectAll(".timezones")

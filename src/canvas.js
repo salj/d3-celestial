@@ -1,14 +1,16 @@
-/* global Celestial */
+import { Celestial } from "./core.js";
+import { functor } from "./util.js";
+
 var Canvas = {}; 
 
 Canvas.symbol = function () {
   // parameters and default values
-  var type = d3.functor("circle"), 
-      size = d3.functor(64), 
-      age = d3.functor(Math.PI), //crescent shape 0..2Pi
-      color = d3.functor("#fff"),  
-      text = d3.functor(""),  
-      padding = d3.functor([2,2]),  
+  var type = functor("circle"), 
+      size = functor(64), 
+      age = functor(Math.PI), //crescent shape 0..2Pi
+      color = functor("#fff"),  
+      text = functor(""),  
+      padding = functor([2,2]),  
       pos;
   
   function canvas_symbol(context) {
@@ -134,22 +136,22 @@ Canvas.symbol = function () {
   
   canvas_symbol.type = function(_) {
     if (!arguments.length) return type; 
-    type = d3.functor(_);
+    type = functor(_);
     return canvas_symbol;
   };
   canvas_symbol.size = function(_) {
     if (!arguments.length) return size; 
-    size = d3.functor(_);
+    size = functor(_);
     return canvas_symbol;
   };
   canvas_symbol.age = function(_) {
     if (!arguments.length) return age; 
-    age = d3.functor(_);
+    age = functor(_);
     return canvas_symbol;
   };
   canvas_symbol.text = function(_) {
     if (!arguments.length) return text; 
-    text = d3.functor(_);
+    text = functor(_);
     return canvas_symbol;
   };
   canvas_symbol.position = function(_) {
@@ -257,3 +259,5 @@ canvas.text = function () {
   
 
 */
+
+export { Canvas };

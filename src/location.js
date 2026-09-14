@@ -1,9 +1,18 @@
-/* global Celestial, settings, horizontal, datetimepicker, config, formats, $, $form, pad, testNumber, isArray, isNumber, isValidDate, showAdvanced, enable, Round, has, hasParent, parentElement */
+import * as d3 from "./d3.js";
+import { parentElement } from "./celestial.js";
+import { formats, settings } from "./config.js";
+import { datetimepicker } from "./datetimepicker.js";
+import { $form, enable, showAdvanced, testNumber } from "./form.js";
+import { horizontal } from "./horizontal.js";
+import { Celestial } from "./core.js";
+import { Round, has, hasParent, isArray, isNumber, isValidDate, loadJson, pad, styles_ } from "./util.js";
 
 var geoInfo = null;
 
 function geo(cfg) {
-  var dtFormat = d3.time.format("%Y-%m-%d %H:%M:%S"),
+  var dtFormat = d3.timeFormat("%Y-%m-%d %H:%M:%S"),
+      // in v3 the formatter could also parse; in v7 that is a separate function
+      dtParse = d3.timeParse("%Y-%m-%d %H:%M:%S"),
       zenith = [0,0],
       geopos = [0,0], 
       date = new Date(),
@@ -100,8 +109,8 @@ function geo(cfg) {
   showAdvanced(config.advanced);
   
 
-  d3.select(document).on("mousedown", function () { 
-    if (!hasParent(d3.event.target, "celestial-date") && dtpick.isVisible()) dtpick.hide(); 
+  d3.select(document).on("mousedown", function (event_) { 
+    if (!hasParent(event_.target, "celestial-date") && dtpick.isVisible()) dtpick.hide(); 
   });
   
   function now() {
@@ -170,7 +179,7 @@ function geo(cfg) {
     //Get current configuration
     Object.assign(config, settings.set());
 
-    date = dtFormat.parse($form("datetime").value.slice(0,-6));
+    date = dtParse($form("datetime").value.slice(0,-6));
 
     //Celestial.apply(config);
 
@@ -204,7 +213,7 @@ function geo(cfg) {
               "&lat=" + p[0] + "&lng=" + p[1] + "&time=" + timestamp;
        // oldZone = timeZone;
 
-    d3.json(url, function(error, json) { 
+    loadJson(url, function(error, json) { 
       if (error) return console.warn(error);
       if (json.status === "FAILED") {
         // Location at sea inferred from longitude
@@ -295,10 +304,12 @@ function geo(cfg) {
   };
 
   if (has(config, "formFields") && (config.location === true || config.formFields.location === true)) {
-    d3.select(parentElement + " ~ #celestial-form").select("#location").style( {"display": "inline-block"} );
+    styles_(d3.select(parentElement + " ~ #celestial-form").select("#location"), {"display": "inline-block"});
   }
   //only if appropriate
   if (isValidLocation(geopos) && (config.location === true || config.formFields.location === true) && config.follow === "zenith")
     setTimeout(go, 1000); 
  
 }
+
+export { geo };

@@ -1,3 +1,6 @@
+import { Celestial } from "./core.js";
+import { deg2rad } from "./transform.js";
+
 /* global Celestial, deg2rad */
 var horizontal = function(dt, pos, loc) {
   //dt: datetime, pos: celestial coordinates [lat,lng], loc: location [lat,lng]  
@@ -77,3 +80,5 @@ Celestial.ha = function(dt, lng, ra) {
   if (ha < 180) ha = ha + 360;
   return ha;
 };
+
+export { horizontal };

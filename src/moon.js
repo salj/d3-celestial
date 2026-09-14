@@ -1,3 +1,6 @@
+import { deg2rad } from "./transform.js";
+import { Trig } from "./util.js";
+
 ﻿/* global Trig, deg2rad */
 var Moon = {
   elements: function(dat) {
@@ -537,3 +540,5 @@ var Moon = {
   }
 
 };
+
+export { Moon };

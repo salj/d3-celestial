@@ -1,9 +1,15 @@
-/* global module, require, topojson, settings, bvcolor, projections, projectionTween, poles, eulerAngles, euler, getAngles, transformDeg, getData, getPlanets, getPlanet, listConstellations, getConstellationList, getMwbackground, getGridValues, Canvas, halfπ, $, px, Round, has, hasCallback, isArray, isNumber, arrayfy, form, geo, fldEnable, setCenter, interpolateAngle, formats */
-var Celestial = {
-  version: '0.7.35',
-  container: null,
-  data: []
-};
+import * as d3 from "./d3.js";
+import { geoZoom } from "../lib/geo-zoom.js";
+import { hasCallback } from "./add.js";
+import { Canvas } from "./canvas.js";
+import { arrayfy, bvcolor, formats, projections, settings } from "./config.js";
+import { fldEnable, form, listConstellations, setCenter } from "./form.js";
+import { getConstellationList, getData, getGridValues, getMwbackground, getPlanet, getPlanets } from "./get.js";
+import { geo } from "./location.js";
+import { Celestial } from "./core.js";
+import { poles, projectionTween } from "./projection.js";
+import { euler, getAngles, halfπ, transformDeg } from "./transform.js";
+import { $, Round, has, interpolateAngle, isArray, isNumber, loadJson, px } from "./util.js";
 
 var ANIMDISTANCE = 0.035,  // Rotation animation threshold, ~2deg in radians
     ANIMSCALE = 1.4,       // Zoom animation threshold, scale factor
@@ -65,22 +71,22 @@ Celestial.display = function(config) {
   
   mapProjection = Celestial.projection(cfg.projection).rotate(rotation).translate([canvaswidth/2, canvasheight/2]).scale(scale * zoomlevel);
     
-  zoom = d3.geo.zoom().projection(mapProjection).center([canvaswidth/2, canvasheight/2]).scaleExtent([scale, scale * zoomextent]).on("zoom.redraw", redraw);
+  zoom = geoZoom().projection(mapProjection).center([canvaswidth/2, canvasheight/2]).scaleExtent([scale, scale * zoomextent]).on("zoom.redraw", redraw);
   // Set initial zoom level
   scale *= zoomlevel;
 
   var canvas = d3.select(parentElement).selectAll("canvas"),
       culture = (cfg.culture !== "" && cfg.culture !== "iau") ? cfg.culture : "";
   
-  if (canvas[0].length === 0) canvas = d3.select(parentElement).append("canvas");
+  if (canvas.empty()) canvas = d3.select(parentElement).append("canvas");
   //canvas.attr("width", width).attr("height", height);
   canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height", canvasheight * pixelRatio);
   var context = canvas.node().getContext("2d");  
   context.setTransform(pixelRatio,0,0,pixelRatio,0,0);
 
-  var graticule = d3.geo.graticule().minorStep([15,10]);
+  var graticule = d3.geoGraticule().stepMinor([15,10]);
   
-  map = d3.geo.path().projection(mapProjection).context(context);
+  map = d3.geoPath().projection(mapProjection).context(context);
    
   //parent div with id #celestial-map or body
   if (container) container.selectAll(parentElement + " *").remove();
@@ -95,15 +101,19 @@ Celestial.display = function(config) {
 
   setClip(projectionSetting.clip);
 
-  d3.select(window).on('resize', resize);
+  // In v7 the listener's first argument is the event object; in v3 it was the
+  // datum (undefined here). Passed straight through, the "nothing changed, do
+  // nothing" guard in resize(set) would never fire, and every resize event
+  // would reset the user's zoom level.
+  d3.select(window).on('resize', function () { resize(); });
 
   if (cfg.interactive === true && cfg.controls === true && $("celestial-zoomin") === null) {
     d3.select(parentElement).append("input").attr("type", "button").attr("id", "celestial-zoomin").attr("value", "\u002b").on("click", function () { zoomBy(1.25); return false; });
     d3.select(parentElement).append("input").attr("type", "button").attr("id", "celestial-zoomout").attr("value", "\u2212").on("click", function () { zoomBy(0.8); return false; });
   }
   
-  circle = d3.geo.circle().angle([90]);  
-  daylight = d3.geo.circle().angle([179.9]);
+  circle = d3.geoCircle().radius(90);  
+  daylight = d3.geoCircle().radius(179.9);
 
   form(cfg);
   
@@ -125,8 +135,8 @@ Celestial.display = function(config) {
     container.append("path").datum(circle).attr("class", "horizon");
     container.append("path").datum(daylight).attr("class", "daylight");
     //Celestial planes
-    if (cfg.transform === "equatorial") graticule.minorStep([15,10]);
-    else  graticule.minorStep([10,10]);
+    if (cfg.transform === "equatorial") graticule.stepMinor([15,10]);
+    else  graticule.stepMinor([10,10]);
     for (var key in cfg.lines) {
       if (!has(cfg.lines, key)) continue;
       if (key === "graticule") {
@@ -143,13 +153,13 @@ Celestial.display = function(config) {
             .attr("class", "graticule_lat"); 
       } else {
         container.append("path")
-          .datum(d3.geo.circle().angle([90]).origin(transformDeg(poles[key], euler[cfg.transform])) )
+          .datum(d3.geoCircle().radius(90).center(transformDeg(poles[key], euler[cfg.transform])) )
           .attr("class", key);
       }
     }
 
     //Milky way outline
-    d3.json(path + "mw.json", function(error, json) {
+    loadJson(path + "mw.json", function(error, json) {
       if (error) { 
         window.alert("Data file could not be loaded or doesn't exist. See readme.md");
         return console.warn(error);  
@@ -170,7 +180,7 @@ Celestial.display = function(config) {
     }); 
 
     //Constellation names or designation
-    d3.json(path + filename("constellations"), function(error, json) {
+    loadJson(path + filename("constellations"), function(error, json) {
       if (error) return console.warn(error);
       
       var con = getData(json, cfg.transform);
@@ -184,7 +194,7 @@ Celestial.display = function(config) {
     });
 
     //Constellation boundaries
-    d3.json(path + filename("constellations", "borders"), function(error, json) {
+    loadJson(path + filename("constellations", "borders"), function(error, json) {
       if (error) return console.warn(error);
       
       //var cb = getData(topojson.feature(json, json.objects.constellations_bounds), cfg.transform);
@@ -198,7 +208,7 @@ Celestial.display = function(config) {
     });
 
     //Constellation lines
-    d3.json(path + filename("constellations", "lines"), function(error, json) {
+    loadJson(path + filename("constellations", "lines"), function(error, json) {
       if (error) return console.warn(error);
 
       var conl = getData(json, cfg.transform);
@@ -213,7 +223,7 @@ Celestial.display = function(config) {
     });
     
     //Stars
-    d3.json(path + cfg.stars.data, function(error, json) {
+    loadJson(path + cfg.stars.data, function(error, json) {
       if (error) return console.warn(error);
 
       var st = getData(json, cfg.transform);
@@ -227,14 +237,14 @@ Celestial.display = function(config) {
     });
 
     //Star names
-    d3.json(path + filename("starnames"), function(error, json) {
+    loadJson(path + filename("starnames"), function(error, json) {
       if (error) return console.warn(error);
       Object.assign(starnames, json);
       redraw();
     });
 
     //Deep space objects
-    d3.json(path + cfg.dsos.data, function(error, json) {
+    loadJson(path + cfg.dsos.data, function(error, json) {
       if (error) return console.warn(error);
       
       var ds = getData(json, cfg.transform);
@@ -247,14 +257,14 @@ Celestial.display = function(config) {
     });
 
     //DSO names
-    d3.json(path + filename("dsonames"), function(error, json) {
+    loadJson(path + filename("dsonames"), function(error, json) {
       if (error) return console.warn(error);
       Object.assign(dsonames, json);
       redraw();
     });
 
     //Planets, Sun & Moon
-    d3.json(path + filename("planets"), function(error, json) {
+    loadJson(path + filename("planets"), function(error, json) {
       if (error) return console.warn(error);
       
       var pl = getPlanets(json, cfg.transform);
@@ -268,7 +278,7 @@ Celestial.display = function(config) {
 
     if (Celestial.data.length > 0) { 
       Celestial.data.forEach( function(d) {
-        if (has(d, "file")) d3.json(d.file, d.callback);
+        if (has(d, "file")) loadJson(d.file, d.callback);
         else setTimeout(d.callback, 0);
       }, this);
     }
@@ -324,8 +334,8 @@ Celestial.display = function(config) {
     
     if (Round(rot[1], 1) === -Round(config.center[1], 1)) keep = true; //keep lat fixed if equal
     cfg = cfg.set(config);
-    var d = Round(d3.geo.distance(cFrom, cfg.center), 2);
-    var o = d3.geo.distance([cFrom[2],0], [cfg.center[2],0]);
+    var d = Round(d3.geoDistance(cFrom, cfg.center), 2);
+    var o = d3.geoDistance([cFrom[2],0], [cfg.center[2],0]);
     if ((d < ANIMDISTANCE && o < ANIMDISTANCE) || cfg.disableAnimations === true) { 
       rotation = getAngles(cfg.center);
       mapProjection.rotate(rotation);
@@ -338,11 +348,11 @@ Celestial.display = function(config) {
     // Orientation interpolator
     if (o === 0) oTween = function () { return rot[2]; };
     else oTween = interpolateAngle(cFrom[2], cfg.center[2]);
-    if (d > 3.14) cfg.center[0] -= 0.01; //180deg turn doesn't work well
+    if (d > 3.14) cfg.center[0] += 0.01; //180deg turn is ambiguous
     cfg.orientationfixed = false;  
     // Rotation interpolator
     if (d === 0) cTween = function () { return cfg.center; };
-    else cTween = d3.geo.interpolate(cFrom, cfg.center);
+    else cTween = d3.geoInterpolate(cFrom, cfg.center);
     interval = (d !== 0) ? interval * d : interval * o; // duration scaled by ang. distance
     d3.select({}).transition().duration(interval).tween("center", function () {
       return function(t) {
@@ -643,10 +653,10 @@ Celestial.display = function(config) {
       if (sol) {
         var up = Celestial.zenith(),
             solpos = sol.ephemeris.pos,
-            dist = d3.geo.distance(up, solpos),
+            dist = d3.geoDistance(up, solpos),
             pt = mapProjection(solpos);
 
-        daylight.origin(solpos);
+        daylight.center(solpos);
         setSkyStyle(dist, pt);
         container.selectAll(parentElement + " .daylight").datum(daylight).attr("d", map);
         context.fill();    
@@ -661,7 +671,7 @@ Celestial.display = function(config) {
     }
 
     if ((cfg.location || cfg.formFields.location) && cfg.horizon.show && !projectionSetting.clip) {
-      circle.origin(Celestial.nadir());
+      circle.center(Celestial.nadir());
       setStyle(cfg.horizon);
       container.selectAll(parentElement + " .horizon").datum(circle).attr("d", map);  
       context.fill(); 
@@ -700,7 +710,7 @@ Celestial.display = function(config) {
   // Helper functions -------------------------------------------------
   
   function clip(coords) {
-    return projectionSetting.clip && d3.geo.distance(cfg.center, coords) > halfπ ? 0 : 1;
+    return projectionSetting.clip && d3.geoDistance(cfg.center, coords) > halfπ ? 0 : 1;
   }
 
   function setStyle(s) {
@@ -999,13 +1009,7 @@ Celestial.display = function(config) {
   load();
 };
  
-//Export entire object if invoked by require
-if (typeof module === "object" && module.exports) {
-  var d3js = require('./lib/d3.js'),
-      d3_geo_projection = require('./lib/d3.geo.projection.js');
-  module.exports = {
-    Celestial: function() { return Celestial; },
-    d3: function() { return d3js; },
-    "d3.geo.projection": function() { return d3_geo_projection; }
-  };
-}
+// The CommonJS export has been taken over by the build: build/celestial.cjs and
+// build/celestial.mjs expose Celestial in whichever form the host needs.
+
+export { Celestial, cfg, dsonames, parentElement, starnames };

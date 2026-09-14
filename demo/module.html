@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>d3-celestial — as an ES module</title>
+<link rel="stylesheet" href="../celestial.css">
+<style>body { font: 14px sans-serif; margin: 16px } code { background:#f2f2f2; padding:1px 4px; border-radius:3px }</style>
+</head>
+<body>
+<h1>As an ES module</h1>
+<p>
+  This page does <strong>not</strong> use a global <code>Celestial</code>; it loads
+  <code>build/celestial.mjs</code> with <code>import</code>. The same form works in a bundler
+  (webpack, Vite, Rollup) and in Node too — this is what upstream #141, #115, #86 and #81 are about.
+</p>
+<pre><code>import Celestial from "../build/celestial.mjs";
+Celestial.display({ container: "celestial-map", ... });</code></pre>
+<div id="celestial-map"></div>
+<p id="statusEl">Loading…</p>
+
+<script type="module">
+import Celestial from "../build/celestial.mjs";
+
+Celestial.display({
+  container: "celestial-map",
+  width: 700,
+  projection: "aitoff",
+  datapath: "../harness/data/",
+  interactive: false,
+  form: false,
+  controls: false,
+  location: false,
+  follow: "center",
+  stars: { limit: 6 },
+  mw: { show: true }
+});
+
+document.getElementById("statusEl").textContent =
+  "Loaded as a module. Celestial version: " + Celestial.version +
+  " · global Celestial: " + (typeof window.Celestial) +
+  " · global d3: " + (typeof window.d3);
+</script>
+</body>
+</html>

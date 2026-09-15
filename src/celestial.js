@@ -1,3 +1,4 @@
+import { interpolateCenter } from "./interpolate.js";
 import { createLifecycle } from "./lifecycle.js";
 import * as d3 from "./d3.js";
 import { geoZoom } from "../lib/geo-zoom.js";
@@ -486,16 +487,10 @@ export class SkyMap {
     // Orientation interpolator
     if (o === 0) oTween = function () { return rot[2]; };
     else oTween = interpolateAngle(cFrom[2], cfg.center[2]);
-    // Round(d, 2) can be at most 3.14 (pi rounded), so the original condition
-    // "d > 3.14" was never satisfied — the guard failed to fire in precisely the
-    // one case it was written for. Nudge the starting point rather than the
-    // target: that keeps the endpoint exact and does not accumulate over
-    // repeated calls. (upstream #157)
-    if (d >= 3.14) cFrom = [cFrom[0] + 0.01, cFrom[1], cFrom[2]]; //180deg turn is ambiguous
     cfg.orientationfixed = false;  
     // Rotation interpolator
     if (d === 0) cTween = function () { return cfg.center; };
-    else cTween = d3.geoInterpolate(cFrom, cfg.center);
+    else cTween = interpolateCenter(cFrom, cfg.center);
     interval = (d !== 0) ? interval * d : interval * o; // duration scaled by ang. distance
     d3.select(transitionNodes[1]).transition().duration(interval).tween("center", function () {
       return function(t) {

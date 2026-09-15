@@ -1,4 +1,4 @@
-# Upstream issue and PR plan
+# Upstream triage and implementation status
 
 Reviewed 2026-09-14 against `celestial-chart` at `78c1977` and live upstream
 `master` at `7e720a3de062059d4c5400a379146a601d9010e0`.
@@ -11,8 +11,45 @@ and [open PRs](https://github.com/ofrohn/d3-celestial/pulls?q=is%3Apr+is%3Aopen)
 
 This is a plan for this branch, not a proposal to merge everything into the
 legacy upstream release. "Resolved here" does not mean resolved upstream.
-No upstream comments, closures or merges were made. No implementation changes
-are part of this review.
+No upstream comments, closures or merges were made. The inventory below records
+the findings at the review date. The implementation status that follows updates
+those findings for `upstream-fixes`; historical descriptions of broken code in
+the inventory are not claims about the current implementation.
+
+## Implementation status, 2026-09-15
+
+Changes are committed by concern. **No tests, builds or browser checks were run
+in this implementation pass**, as requested. Changed JavaScript and regression
+files received syntax checks; patches received whitespace checks. Added test
+cases are evidence of intended coverage, not passing results.
+
+| Unit | Implemented change | Evidence still needed |
+| --- | --- | --- |
+| G1/G2 | Pass the map transform into grid helpers; cache and refresh view-relative anchors while retaining fixed-coordinate labels. [Grid tests](../test/grid.test.mjs). | Run numeric/center/outline cases in Canvas and SVG, including date/location changes. |
+| P1 | Begin a new Canvas path and save/restore drawing state for each planet. | Reproduce the stars-off Sun/Milky Way case and inspect pixels across symbol modes. |
+| S1 | Keep projection base scale independent of zoom, retain relative zoom through resize/reprojection, handle DPR changes and preserve noninteractive canvas dimensions. | Run initial-vs-applied zoom and width cases at DPR 1/2; confirm #101/#138 symptoms separately. |
+| I1 | Add idempotent `destroy()`, namespaced listeners, owned forms/canvas/data nodes, cancelled timers/loads and stale-load guards. Scope form state, observer state and validation errors. [Lifecycle tests](../test/lifecycle.test.mjs). | Run mount/unmount/remount and independent resizing; exercise disposal during active work. Existing supplied canvas state is not restored. |
+| I2 | Capture instance metrics, configuration, observer/planet positions and name tables; isolate each temporary SVG root and clean it up. Standalone exports do not run global legacy save callbacks. | Run concurrent exports of different maps and repeated exports of one map. Legacy custom save callbacks remain global. |
+| T1a/T1b | Keep an absolute instant, edit offset-shifted UTC calendar fields, accept zero, initialize date/location directly and apply observer updates atomically. Rewrite #135 with time-aware deduplication and stale/disposed-result guards. [Time tests](../test/time.test.mjs). | Run browser cases under different host zones and across DST, plus calendar interactions and async offset replies. |
+| A1 | Replace the longitude nudge with a stable great-circle tangent, including polar antipodes and exact endpoints. [Interpolation tests](../test/interpolation.test.mjs) call the actual implementation. | Run the numeric cases and inspect animated pole-to-pole rotation. |
+| U1 | Port selected #155 CSS, add lifecycle-owned classes for arbitrary hosts, make current demos responsive, wrap forms and enlarge controls. | Run 320/375/768px layouts and coarse-pointer controls; drag, pinch and page scrolling remain unverified. |
+| D1 | Extract #150's weekday `font-size` correction as one commit. | Check the computed 11px size in a browser. |
+| D2 | Add [usage examples](06-usage.md), correct the numeric year-range type and document coordinate units, observer semantics and data/export limits. | Execute examples before using them as upstream closure evidence. |
+| Additional #110 finding | Recursively merge partial nested styles instead of dropping unspecified widths, opacity, fonts and label options. Arrays remain replacements. [Config tests](../test/config.test.mjs). | Run the unit cases and line-color update/export example. |
+| DATA1 | Record current data/distribution inventory in [NOTICE](../NOTICE.md), alongside the existing provenance account. | Permission evidence remains unresolved; no replacement data or upstream contact. |
+
+[Browser regressions](../harness/instance-checks.mjs) are wired into the existing
+`--smoke` and `--all` harness modes. They cover rendered symbol radii, grid
+anchors, resize/reprojection zoom, observer isolation, concurrent SVG snapshots,
+remount/disposal and narrow custom-container layouts. They have not been run.
+V1 remains open: especially the stars-off planet image, DPR 2, initial observer
+follow, noninteractive quarter-globe and constellation-animation reports need
+reproduction before claiming closure.
+
+S2 (configurable inset), H1/H2 (headless and horizontal-view APIs), projected
+imagery, hit testing and the other optional features remain separate work.
+The PR dispositions remain unchanged: selected intent from #135/#155 and the
+#150 typo were implemented; no whole upstream PR was merged.
 
 ## Decisions
 
@@ -29,12 +66,13 @@ are part of this review.
 - #160 is a data provenance dependency. Keep its investigation separate from
   renderer correctness and record what evidence is actually available.
 
-The earlier [issue survey](03-issues.md) is historical. In particular, its
+The imported fork's earlier `docs/03-issues.md` survey is historical and was
+not retained in this reconstruction. In particular, its
 claims about #81 and #107 are too broad, and it omits #51, #56 and #112 as well
 as the newer #159 and #160. Its advertised category counts also do not match
 its rows.
 
-## All open PRs
+## PR inventory at review
 
 | PR | Decision for this branch | Evidence and independent action |
 | --- | --- | --- |
@@ -52,7 +90,7 @@ Reviewed PR heads: #135 `8af281d`, #140 `be5f729`, #143 `830661f`,
 GitHub's mergeability field describes merging into upstream master, not this
 modernized branch and not semantic correctness.
 
-## All open issues
+## Issue inventory at review
 
 ### Fix already present: six issues
 
@@ -133,8 +171,9 @@ not rerun during this planning pass; dependencies are not installed.
 
 ## Independent implementation units
 
-These are proposed commits/tasks, not a request to do one giant cleanup.
-A task can proceed independently unless a dependency is listed.
+These are the concern boundaries and acceptance criteria from the review.
+Implementation status is recorded above; unexecuted acceptance checks remain
+outstanding. A task is independent unless a dependency is listed.
 
 | Unit | Scope | Acceptance evidence | Dependencies |
 | --- | --- | --- | --- |

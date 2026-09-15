@@ -16,10 +16,10 @@ function exportSVG(sky, done, fname) {
   // The working element is used through this reference, never looked up by
   // its id: two exports running at once, or one left behind by an export that
   // failed, would otherwise find each other's element.
-  var doc = d3.select("body").append("div").attr("id", "d3-celestial-svg").attr("style", "display: none"),
+  var doc = d3.select("body").append("div").attr("class", "d3-celestial-svg").attr("style", "display: none"),
       svg = doc.append("svg"),
       m = sky.metrics(),
-      cfg = sky.cfg,
+      cfg = settings.set({}, sky.cfg),
       path = cfg.datapath,
       proj = projections[cfg.projection],
       rotation = getAngles(cfg.center),
@@ -30,7 +30,30 @@ function exportSVG(sky, done, fname) {
       culture = (cfg.culture !== "" && cfg.culture !== "iau") ? cfg.culture : "",
       circle, id;
 
-  svg.selectAll("*").remove();
+  // Capture observer and catalogue state before any asynchronous work starts.
+  var constellation = sky.constellation,
+      starnames = JSON.parse(JSON.stringify(sky.starnames)),
+      dsonames = JSON.parse(JSON.stringify(sky.dsonames)),
+      date = typeof sky.instant === "function" ? new Date(sky.instant().valueOf()) :
+             typeof sky.date === "function" ? new Date(sky.date().valueOf()) : null,
+      zenith = typeof sky.zenith === "function" ? sky.zenith().slice() : null,
+      nadir = typeof sky.nadir === "function" ? sky.nadir().slice() : null,
+      planets = [],
+      sun = date && sky.origin ? getPlanet("sol", date, sky) : null,
+      sunPosition = sun ? transformDeg(sun.ephemeris.pos, euler[cfg.transform]) : null;
+  if (date && sky.origin) {
+    var origin = sky.origin(date).spherical();
+    sky.container.selectAll(".planet").each(function(d) {
+      var entry = createEntry(d(date).equatorial(origin));
+      entry.geometry.coordinates = transformDeg(entry.geometry.coordinates, euler[cfg.transform]);
+      planets.push(entry);
+    });
+  }
+  var unregister = sky._lifecycle ? sky._lifecycle.onDispose(function() { doc.remove(); }) : function() {};
+  function loadCatalogue(url, callback) {
+    return sky._lifecycle ? sky._lifecycle.load(url, callback) : loadJson(url, callback);
+  }
+
 
   var defs = svg.append("defs");
 
@@ -117,7 +140,7 @@ function exportSVG(sky, done, fname) {
   //Milky way outline
   if (cfg.mw.show) {
     q.defer(function(callback) { 
-      loadJson(path + "mw.json", function(error, json) {
+      loadCatalogue(path + "mw.json", function(error, json) {
         if (error) return callback(error);
         var mw = getData(json, cfg.transform);
         var mw_back = getMwbackground(mw);
@@ -146,11 +169,11 @@ function exportSVG(sky, done, fname) {
   //Constellation boundaries
   if (cfg.constellations.bounds) { 
     q.defer(function(callback) { 
-      loadJson(path + filename("constellations", "borders"), function(error, json) {
+      loadCatalogue(path + filename("constellations", "borders"), function(error, json) {
         if (error) return callback(error);
 
         var conb = getData(json, cfg.transform),
-            selected = sky.constellation;
+            selected = constellation;
         if (selected) {
           var re = new RegExp("\\b" + selected + "\\b");
         }
@@ -158,7 +181,7 @@ function exportSVG(sky, done, fname) {
         groups.constBoundaries.selectAll(".bounds")
          .data(conb.features)
          .enter().append("path")
-         .attr("class", function(d) { return (selected && d.ids.search(re) !== -1) ? "constBoundariesSel" : "constBoundaries"; }) 
+         .attr("class", function(d) { return (selected && d.ids.search(re) !== -1) ? "constBoundariesSel" : "constBoundaries"; })
          .attr("d", map);
 
         styles.constBoundaries = svgStyle(cfg.constellations.boundStyle);
@@ -176,7 +199,7 @@ function exportSVG(sky, done, fname) {
   //Constellation lines
   if (cfg.constellations.lines) { 
     q.defer(function(callback) { 
-      loadJson(path + filename("constellations", "lines"), function(error, json) {
+      loadCatalogue(path + filename("constellations", "lines"), function(error, json) {
         if (error) return callback(error);
 
         var conl = getData(json, cfg.transform);
@@ -223,7 +246,7 @@ function exportSVG(sky, done, fname) {
   //Constellation names or designation
   if (cfg.constellations.names) { 
     q.defer(function(callback) { 
-      loadJson(path + filename("constellations"), function(error, json) {
+      loadCatalogue(path + filename("constellations"), function(error, json) {
         if (error) return callback(error);
 
         var conn = getData(json, cfg.transform);
@@ -256,7 +279,7 @@ function exportSVG(sky, done, fname) {
   //Stars
   if (cfg.stars.show) { 
     q.defer(function(callback) { 
-      loadJson(path +  cfg.stars.data, function(error, json) {
+      loadCatalogue(path +  cfg.stars.data, function(error, json) {
         if (error) return callback(error);
 
         var cons = getData(json, cfg.transform);
@@ -314,7 +337,7 @@ function exportSVG(sky, done, fname) {
   //Deep space objects
   if (cfg.dsos.show) { 
     q.defer(function(callback) { 
-      loadJson(path +  cfg.dsos.data, function(error, json) {
+      loadCatalogue(path +  cfg.dsos.data, function(error, json) {
         if (error) return callback(error);
 
         var cond = getData(json, cfg.transform);
@@ -375,22 +398,13 @@ function exportSVG(sky, done, fname) {
   }
 
   //Planets
-  if ((cfg.location || cfg.formFields.location) && cfg.planets.show && Celestial.origin && sky.instant) {
+  if ((cfg.location || cfg.formFields.location) && cfg.planets.show && planets.length) {
     q.defer(function(callback) {
-      var dt = sky.instant(),
-          o = Celestial.origin(dt).spherical(),
-          jp = {type: "FeatureCollection", features: []},
+      var jp = {type: "FeatureCollection", features: []},
           jlun = {type: "FeatureCollection", features: []};
-      sky.container.selectAll(".planet").each(function(d) {
-        var id = d.id(), r = 12,
-            p = d(dt).equatorial(o);
-            
-        p.ephemeris.pos = transformDeg(p.ephemeris.pos, euler[cfg.transform]);  //transform; 
-        if (clip(p.ephemeris.pos) === 1) {
-          if (id === "lun")
-            jlun.features.push(createEntry(p));
-          else
-            jp.features.push(createEntry(p));
+      planets.forEach(function(entry) {
+        if (clip(entry.geometry.coordinates) === 1) {
+          (entry.id === "lun" ? jlun : jp).features.push(entry);
         }
       });
       if (cfg.planets.symbolType === "disk") {
@@ -474,11 +488,9 @@ function exportSVG(sky, done, fname) {
   
   if ((cfg.location || cfg.formFields.location) && cfg.daylight.show && proj.clip && sky.zenith) {
     q.defer(function(callback) {
-      var sol = getPlanet("sol", undefined, sky);
-      if (sol) {
-        // In the map's coordinate system, like the zenith (see redraw()).
-        var up = sky.zenith(),
-            solpos = transformDeg(sol.ephemeris.pos, euler[cfg.transform]),
+      if (sunPosition) {
+        var up = zenith,
+            solpos = sunPosition,
             dist = d3.geoDistance(up, solpos),
             pt = projection(solpos),
             daylight = d3.geoCircle().radius(179.95).center(solpos);
@@ -503,7 +515,7 @@ function exportSVG(sky, done, fname) {
 
   if ((cfg.location || cfg.formFields.location) && cfg.horizon.show && !proj.clip && sky.nadir) {
     q.defer(function(callback) {
-      var horizon = d3.geoCircle().radius(90).center(sky.nadir());
+      var horizon = d3.geoCircle().radius(90).center(nadir);
      
       groups.horizon.append("path").datum(horizon)
        .attr("class", "horizon")
@@ -513,8 +525,8 @@ function exportSVG(sky, done, fname) {
     });
   }
   
-  if (Celestial.data.length > 0) { 
-    Celestial.data.forEach( function(d) {
+  if (sky._legacyLayers && Celestial.cfg === sky.cfg && Celestial.data.length > 0) {
+    Celestial.data.slice().forEach( function(d) {
       if (has(d, "save")) {
        q.defer(function(callback) { 
          d.save(); 
@@ -681,8 +693,8 @@ function exportSVG(sky, done, fname) {
   function dsoName(d) {
     //return p[cfg.dsos.namesType]; 
     var lang = cfg.dsos.namesType, id = d.id;
-    if (lang === "desig" || !has(sky.dsonames, id)) return d.properties.desig;
-    return has(sky.dsonames[id], lang) ? sky.dsonames[id][lang] : d.properties.desig; 
+    if (lang === "desig" || !has(dsonames, id)) return d.properties.desig;
+    return has(dsonames[id], lang) ? dsonames[id][lang] : d.properties.desig;
   }
 
   function dsoColor(p) {
@@ -691,14 +703,14 @@ function exportSVG(sky, done, fname) {
   }
  
   function starDesignation(id) {
-    if (!has(sky.starnames, id)) return "";
-    return sky.starnames[id][cfg.stars.designationType]; 
+    if (!has(starnames, id)) return "";
+    return starnames[id][cfg.stars.designationType];
   }
 
   function starPropername(id) {
     var lang = cfg.stars.propernameType;
-    if (!has(sky.starnames, id)) return "";
-    return has(sky.starnames[id], lang) ? sky.starnames[id][lang] : sky.starnames[id].name; 
+    if (!has(starnames, id)) return "";
+    return has(starnames[id], lang) ? starnames[id][lang] : starnames[id].name;
   }
 
   function starSize(mag) {
@@ -776,7 +788,9 @@ function exportSVG(sky, done, fname) {
   }
 
   q.await(function(error) {
-    if (error) { doc.remove(); throw error; }
+    if (sky._lifecycle && sky._lifecycle.disposed) return;
+    try {
+    if (error) throw error;
     svg
       .attr("title", "D3-Celestial")
       .attr("version", 1.1)
@@ -800,13 +814,19 @@ function exportSVG(sky, done, fname) {
       var a = d3.select("body").append("a").node(); 
       a.download = fname || "d3-celestial.svg";
       a.rel = "noopener";
-      a.href = URL.createObjectURL(blob);
-      a.click();
-      d3.select(a).remove();
+      var url = URL.createObjectURL(blob);
+      a.href = url;
+      try { a.click(); } finally {
+        d3.select(a).remove();
+        setTimeout(function() { URL.revokeObjectURL(url); }, 0);
+      }
     } else if (typeof done === "function") {
       done(svg.node().outerHTML);
     }
-    doc.remove();
+    } finally {
+      doc.remove();
+      unregister();
+    }
   });
 
 }

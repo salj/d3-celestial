@@ -68,6 +68,7 @@ export class SkyMap {
   var transitionNodes = [{}, {}, {}];
   var legacyLayers = !!(options && options.compatibility);
   Object.defineProperty(this, "_lifecycle", { value: life, configurable: true });
+  Object.defineProperty(this, "_legacyLayers", { value: legacyLayers, configurable: true });
   this.destroy = function() { life.dispose(); };
   function loadData(url, callback) {
     var generation = loadGeneration;
@@ -1259,7 +1260,7 @@ Celestial.display = function (config) {
   var descriptors = Object.getOwnPropertyDescriptors(instance);
   for (var key_ in descriptors) {
     // do not overwrite the names that have forwarding accessors
-    if (key_ === "constructor" || key_ === "constellations" || key_ === "constellation" || key_ === "origin" || key_ === "_lifecycle") continue;
+    if (key_ === "constructor" || key_ === "constellations" || key_ === "constellation" || key_ === "origin" || key_ === "_lifecycle" || key_ === "_legacyLayers") continue;
     Object.defineProperty(Celestial, key_, descriptors[key_]);
   }
   // Now that the global interface exists, the layers can be drawn.

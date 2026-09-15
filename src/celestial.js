@@ -870,8 +870,8 @@ export class SkyMap {
     setStyle(cfg.background);
     container.selectAll(parentElement + " .outline").attr("d", map);
     if (stroke === true) {
-      context.globalAlpha = 1;      
-      context.stroke(); 
+      context.globalAlpha = 1;
+      if (!has(cfg.background, "width") || cfg.background.width > 0) context.stroke();
     } else {
       context.fill();
     }
@@ -919,9 +919,10 @@ export class SkyMap {
   }
 
   function setStyle(s) {
+    var width = has(s, "width") && isNumber(s.width) ? +s.width : null;
     context.fillStyle = s.fill || null;
-    context.strokeStyle = s.stroke || null;
-    context.lineWidth = s.width || null;
+    context.strokeStyle = width === 0 ? "rgba(0,0,0,0)" : s.stroke || null;
+    if (width !== null && width > 0) context.lineWidth = width;
     context.globalAlpha = s.opacity !== null ? s.opacity : 1;  
     context.font = s.font || null;
     if (has(s, "dash")) context.setLineDash(s.dash); else context.setLineDash([]);
@@ -939,8 +940,9 @@ export class SkyMap {
   function setStyleA(rank, s) {
     rank = rank || 1;
     context.fillStyle = isArray(s.fill) ? s.fill[rank-1] : null;
-    context.strokeStyle = isArray(s.stroke) ? s.stroke[rank-1] : null;
-    context.lineWidth = isArray(s.width) ? s.width[rank-1] : null;
+    var width = isArray(s.width) && isNumber(s.width[rank-1]) ? +s.width[rank-1] : null;
+    context.strokeStyle = width === 0 ? "rgba(0,0,0,0)" : isArray(s.stroke) ? s.stroke[rank-1] : null;
+    if (width !== null && width > 0) context.lineWidth = width;
     context.globalAlpha = isArray(s.opacity) ? s.opacity[rank-1] : 1;  
     context.font = isArray(s.font) ? s.font[rank-1] : null;
     if (has(s, "dash")) context.setLineDash(s.dash); else context.setLineDash([]);

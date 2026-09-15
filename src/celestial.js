@@ -251,8 +251,6 @@ export class SkyMap {
   daylight = d3.geoCircle().radius(179.9);
 
   
-  if ($("error") === null) d3.select("body").append("div").attr("id", "error");
-
   if ($("loc") === null) geo(this);
   if ((cfg.location || cfg.formFields.location) && cfg.follow === "zenith" && instance.zenith) {
     cfg.center = instance.zenith().slice();

@@ -3,7 +3,7 @@ import { formats, formats_all, globalConfig, settings, settingsOf, storeSettings
 import { Celestial } from "./core.js";
 import { exportSVG } from "./svg.js";
 import { euler, transformDeg } from "./transform.js";
-import { findPos, has, isArray, isNumber, isObject, px, styles_ } from "./util.js";
+import { has, isArray, isNumber, isObject, px, styles_ } from "./util.js";
 
 // The settings form belonging to one map.
 //
@@ -235,6 +235,7 @@ function form(sky) {
   var div = d3.select(node);
   div.selectAll("*").remove();
   sky.formRoot = node;
+  div.append("div").attr("id", "error").attr("role", "alert");
   sky._lifecycle.onDispose(function() {
     if (ownsForm) div.remove(); else div.selectAll("*").remove();
   });
@@ -793,8 +794,13 @@ function form(sky) {
 
 // Error notification
 function popError(nd, err) {
-  var p = findPos(nd);
-  styles_(d3.select("#error").html(err), {top:px(p[1] + nd.offsetHeight + 1), left:px(p[0]), opacity:1});
+  var root = nd.closest("#celestial-form"),
+      field = nd.getBoundingClientRect(),
+      parent = root.getBoundingClientRect();
+  styles_(d3.select(root).select("#error").text(err), {
+    top: px(field.bottom - parent.top + root.scrollTop + 1),
+    left: px(field.left - parent.left + root.scrollLeft), opacity: 1
+  });
   nd.focus();
 }
 
@@ -811,7 +817,7 @@ function testNumber(node) {
     v = parseFloat(v);
     if (v < node.min || v > node.max ) { popError(node, node.title + " must be between " + (node.min + adj) + " and " + (+node.max - adj)); return false; }
   }
-  styles_(d3.select("#error"), {top:"-9999px", left:"-9999px", opacity:0}); 
+  styles_(d3.select(node.closest("#celestial-form")).select("#error"), {top:"-9999px", left:"-9999px", opacity:0});
   return true; 
 }
 
@@ -827,7 +833,7 @@ function testColor(node) {
     if (v === "") return true;
     if (v.search(/^#[0-9A-F]{6}$/i) === -1) { popError(node, node.title + ": not a color value"); return false; }
   }
-  styles_(d3.select("#error"), {top:"-9999px", left:"-9999px", opacity:0});
+  styles_(d3.select(node.closest("#celestial-form")).select("#error"), {top:"-9999px", left:"-9999px", opacity:0});
   return true;
 }
 

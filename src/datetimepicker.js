@@ -216,7 +216,7 @@ var datetimepicker = function(sky, callback) {
   
   function vanish() {
     d3.select(sky.formRoot).select("#celestial-date").style("opacity", 0);
-    styles_(d3.select("#error"), {top:"-9999px", left:"-9999px", opacity:0}); 
+    styles_(d3.select(sky.formRoot).select("#error"), {top:"-9999px", left:"-9999px", opacity:0});
     d3.select(sky.formRoot).select("#datepick").classed("active", false);
     sky._lifecycle.cancel(hideTimer);
     hideTimer = sky._lifecycle.schedule(function () { $form("celestial-date").style.top = px(-9999); }, 600);

@@ -116,6 +116,11 @@ The example puts them along declinations +30 and -30 degrees. Latitude labels
 follow the current central longitude. `"outline"` chooses view-relative edge
 anchors. This does not add geographic N/E/S/W headings or a level horizon.
 
+Canvas drawing clips content, including label extents and legacy custom redraw
+layers, to the map outline. The border keeps its existing draw order and full
+stroke. SVG export still uses point visibility and page bounds; it does not yet
+apply equivalent outline clipping to glyphs and symbols.
+
 A page image can show through a transparent map:
 
 ```css

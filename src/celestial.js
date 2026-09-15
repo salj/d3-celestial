@@ -637,6 +637,8 @@ export class SkyMap {
     clear();
     
     drawOutline();
+    context.save();
+    clipOutline();
     
     //Draw all types of objects on the canvas
     if (cfg.mw.show) { 
@@ -709,7 +711,10 @@ export class SkyMap {
       });
     }
     
-    drawOutline(true);    
+    context.restore();
+    drawOutline(true);
+    context.save();
+    clipOutline();
 
     if (cfg.constellations.names) { 
       //setTextStyle(cfg.constellations.nameStyle);
@@ -850,6 +855,8 @@ export class SkyMap {
       if (cfg.horizon.stroke) context.stroke(); 
     }
 
+    context.restore();
+
     if (cfg.controls) { 
       zoomState(mapProjection.scale());
     }
@@ -876,6 +883,20 @@ export class SkyMap {
       context.fill();
     }
     mapProjection.rotate(rot);
+  }
+
+  // Use the same unrotated boundary as drawOutline. Clip the content in two
+  // passes so the border retains its full stroke at the existing draw position.
+  function clipOutline() {
+    var rot = mapProjection.rotate();
+    try {
+      mapProjection.rotate([0,0]);
+      context.beginPath();
+      container.selectAll(parentElement + " .outline").attr("d", map);
+      context.clip();
+    } finally {
+      mapProjection.rotate(rot);
+    }
   }
 
   // Helper functions -------------------------------------------------

@@ -36,6 +36,7 @@ cases are evidence of intended coverage, not passing results.
 | D1 | Extract #150's weekday `font-size` correction as one commit. | Check the computed 11px size in a browser. |
 | D2 | Add [usage examples](06-usage.md), correct the numeric year-range type and document coordinate units, observer semantics and data/export limits. | Execute examples before using them as upstream closure evidence. |
 | Additional #110 finding | Recursively merge partial nested styles instead of dropping unspecified widths, opacity, fonts and label options. Arrays remain replacements. [Config tests](../test/config.test.mjs). | Run the unit cases and line-color update/export example. |
+| #51 Canvas portion, from `misc.patch` | Clip Canvas geometry, symbols, labels and legacy redraw layers to the projected outline, preserving the border stroke outside the content clip. | Inspect edge labels and symbols across projections and zoom levels. SVG glyph clipping remains unimplemented, so #51 is not fully resolved. |
 | DATA1 | Record current data/distribution inventory in [NOTICE](../NOTICE.md), alongside the existing provenance account. | Permission evidence remains unresolved; no replacement data or upstream contact. |
 
 [Browser regressions](../harness/instance-checks.mjs) are wired into the existing

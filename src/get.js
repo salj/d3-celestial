@@ -35,7 +35,7 @@ function getPlanets(d, sky) {
     if (has(d[key], "parent")) dat.parentBody(d[key].parent);
     dat.elements(d[key].elements[0]).params(d[key]);
     if (key === "ter") 
-      Celestial.origin = dat;
+      sky.origin = dat;
     else res.push(dat);
   }
   //res.push(Kepler().id("sol"));
@@ -49,11 +49,11 @@ function getPlanets(d, sky) {
 // most recently displayed map.
 function getPlanet(id, dt, sky) {
   sky = sky || Celestial;
-  if (!Celestial.origin || !sky.container) return;
+  if (!sky.origin || !sky.container) return;
   dt = dt || (sky.instant && sky.instant());   // the moment shown, not the wall clock
   if (!dt) return;
 
-  var o = Celestial.origin(dt).spherical(), res;
+  var o = sky.origin(dt).spherical(), res;
      
   sky.container.selectAll(".planet").each(function(d) {
     if (id === d.id()) {

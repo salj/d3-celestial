@@ -18,7 +18,7 @@ var datetimepicker = function(sky, callback) {
       dateParse = d3.timeParse("%Y-%m-%d"),
       dtrange = cfg.daterange || [];
     
-  var picker = d3.select(sky.parentElement + " ~ #celestial-form").append("div").attr("id", "celestial-date");
+  var picker = d3.select(sky.formRoot).append("div").attr("id", "celestial-date");
   nav("left");
   monSel();
   yrSel();
@@ -34,7 +34,7 @@ var datetimepicker = function(sky, callback) {
   function daySel() {
     var mo = $form("mon").value, yr = $form("yr").value,
         curdt = new Date(yr, mo, 1),
-        cal = d3.select(sky.parentElement + " ~ #celestial-form").select("#cal"),
+        cal = d3.select(sky.formRoot).select("#cal"),
         today = new Date();
     yr = parseInt(yr);   
     mo = parseInt(mo);   
@@ -68,7 +68,7 @@ var datetimepicker = function(sky, callback) {
   }
 
   function fillYrSel() { 
-    var sel = d3.select(sky.parentElement + " ~ #celestial-form").select("select#yr"),
+    var sel = d3.select(sky.formRoot).select("select#yr"),
         year = date.getFullYear(),
         selected = 0,
         years = getYears(date);
@@ -188,17 +188,17 @@ var datetimepicker = function(sky, callback) {
       date.setTime(dt.valueOf());
       select("tz", tz);
       set();
-      styles_(d3.select(sky.parentElement + " ~ #celestial-form").select("#celestial-date"),
+      styles_(d3.select(sky.formRoot).select("#celestial-date"),
                {"top": px(top), "left": px(left), "opacity": 1});  
-      d3.select(sky.parentElement + " ~ #celestial-form").select("#datepick").classed("active", true);
+      d3.select(sky.formRoot).select("#datepick").classed("active", true);
     } else {
       vanish();
     }
   };
   
   this.isVisible = function () {
-    if (!document.getElementById("datepick")) return false;
-    return d3.select(sky.parentElement + " ~ #celestial-form").select("#datepick").classed("active") === true;
+    if (!$form("datepick")) return false;
+    return d3.select(sky.formRoot).select("#datepick").classed("active") === true;
   };
 
   this.hide = function () {
@@ -206,10 +206,10 @@ var datetimepicker = function(sky, callback) {
   };
   
   function vanish() {
-    d3.select(sky.parentElement + " ~ #celestial-form").select("#celestial-date").style("opacity", 0);
+    d3.select(sky.formRoot).select("#celestial-date").style("opacity", 0);
     styles_(d3.select("#error"), {top:"-9999px", left:"-9999px", opacity:0}); 
-    d3.select(sky.parentElement + " ~ #celestial-form").select("#datepick").classed("active", false);
-    setTimeout(function () { $form("celestial-date").style.top = px(-9999); }, 600);    
+    d3.select(sky.formRoot).select("#datepick").classed("active", false);
+    sky._lifecycle.schedule(function () { $form("celestial-date").style.top = px(-9999); }, 600);    
   }
   
   // `this` is the clicked day cell or the time zone select. The hour, minute

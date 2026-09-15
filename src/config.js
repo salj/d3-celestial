@@ -2,6 +2,16 @@ import * as d3 from "./d3.js";
 import { Celestial } from "./core.js";
 import { has, isArray } from "./util.js";
 
+function copyConfig(value) {
+  if (Array.isArray(value)) return value.map(copyConfig);
+  if (value && value.constructor === Object) {
+    var copy = {};
+    Object.keys(value).forEach(function(key) { copy[key] = copyConfig(value[key]); });
+    return copy;
+  }
+  return value;
+}
+
 // Central configuration object
 var globalConfig = {};
 
@@ -176,7 +186,7 @@ var settings = {
     if (base) Object.assign(config, base);
     else if (Object.entries(globalConfig).length === 0) Object.assign(config, this);
     else Object.assign(config, globalConfig);
-    if (!cfg) return config; 
+    if (!cfg) return copyConfig(config); 
     for (prop in config) {
       if (!has(config, prop)) continue; 
       //if (typeof(config[prop]) === 'function'); 
@@ -195,6 +205,7 @@ var settings = {
         }
       }
     }
+    res = copyConfig(res);
     res.constellations.nameStyle.font = arrayfy(res.constellations.nameStyle.font);
     res.constellations.nameStyle.opacity = arrayfy(res.constellations.nameStyle.opacity);
     res.constellations.nameStyle.fill = arrayfy(res.constellations.nameStyle.fill);

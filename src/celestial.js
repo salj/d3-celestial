@@ -1,3 +1,4 @@
+import { createLifecycle } from "./lifecycle.js";
 import * as d3 from "./d3.js";
 import { geoZoom } from "../lib/geo-zoom.js";
 import { hasCallback } from "./add.js";
@@ -10,7 +11,7 @@ import { geo } from "./location.js";
 import { Celestial } from "./core.js";
 import { poles, projectionTween } from "./projection.js";
 import { euler, getAngles, halfπ, transformDeg } from "./transform.js";
-import { Round, has, interpolateAngle, isArray, isNumber, loadJson, px } from "./util.js";
+import { Round, has, interpolateAngle, isArray, isNumber, px } from "./util.js";
 
 var ANIMDISTANCE = 0.035,  // Rotation animation threshold, ~2deg in radians
     ANIMSCALE = 1.4,       // Zoom animation threshold, scale factor
@@ -24,6 +25,8 @@ var ANIMDISTANCE = 0.035,  // Rotation animation threshold, ~2deg in radians
 // runs entirely on per-instance state, which is what allows several independent
 // maps on one page (upstream #96, #131).
 export var current = null;
+const mountedMaps = new WeakMap();
+let nextMapId = 0;
 
 // One sky-map instance.
 //
@@ -60,6 +63,23 @@ export class SkyMap {
   // example Celestial.mapProjection would be out of date after a projection
   // change. A getter always exposes the current internal state.
   var instance = this;
+  var life = createLifecycle(), loadGeneration = 0;
+  var namespace = ".celestial-" + (++nextMapId);
+  var transitionNodes = [{}, {}, {}];
+  var legacyLayers = !!(options && options.compatibility);
+  Object.defineProperty(this, "_lifecycle", { value: life, configurable: true });
+  this.destroy = function() { life.dispose(); };
+  function loadData(url, callback) {
+    var generation = loadGeneration;
+    return life.load(url, function(error, json) {
+      if (generation === loadGeneration) callback(error, json);
+    });
+  }
+  life.onDispose(function() {
+    transitionNodes.forEach(function(node) { d3.select(node).interrupt(); });
+    d3.select(window).on(namespace, null);
+    if (current === instance) current = null;
+  });
 
   // Layers added with Celestial.add() draw through the GLOBAL Celestial object
   // (Celestial.container, .context, .mapProjection …) — that is how upstream's
@@ -119,6 +139,13 @@ export class SkyMap {
   //if (cfg.disableAnimations) ANIMDISTANCE = Infinity;
 
   var parent = document.getElementById(cfg.container);
+  var host = parent || document.body;
+  var previous = mountedMaps.get(host);
+  if (previous) previous.destroy();
+  mountedMaps.set(host, instance);
+  life.onDispose(function() {
+    if (mountedMaps.get(host) === instance) mountedMaps.delete(host);
+  });
   if (parent) { 
     parentElement = "#" + cfg.container;
     var st = window.getComputedStyle(parent, null);
@@ -134,7 +161,7 @@ export class SkyMap {
       pixelRatio = window.devicePixelRatio || 1,
       projectionSetting = getProjection(cfg.projection, cfg.projectionRatio);
 
-  if (!projectionSetting) return;
+  if (!projectionSetting) { life.dispose(); return; }
 
   if (cfg.lines.graticule.lat && cfg.lines.graticule.lat.pos[0] === "outline") projectionSetting.scale -= 2;
         
@@ -169,7 +196,8 @@ export class SkyMap {
   var canvas = d3.select(parentElement).selectAll("canvas"),
       culture = (cfg.culture !== "" && cfg.culture !== "iau") ? cfg.culture : "";
   
-  if (canvas.empty()) canvas = d3.select(parentElement).append("canvas");
+  var ownedCanvas = canvas.empty();
+  if (ownedCanvas) canvas = d3.select(parentElement).append("canvas");
   //canvas.attr("width", width).attr("height", height);
   canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height", canvasheight * pixelRatio);
   var context = canvas.node().getContext("2d");  
@@ -187,9 +215,16 @@ export class SkyMap {
   if (container.empty()) container = d3.select(parentElement).append("container");
   else container.selectAll(parentElement + " *").remove();
 
+  life.onDispose(function() {
+    canvas.on(".zoom", null).interrupt();
+    d3.select(host).on(namespace, null);
+    if (ownedCanvas) canvas.remove();
+    container.remove();
+    d3.select(host).selectAll("#celestial-zoomin, #celestial-zoomout").remove();
+  });
   if (cfg.interactive) {
     canvas.call(zoom);
-    d3.select(parentElement).on('dblclick', function () { zoomBy(1.5625); return false; });
+    d3.select(parentElement).on('dblclick' + namespace, function () { zoomBy(1.5625); return false; });
   } else {
     canvas.style("cursor", "default", "important");
   }
@@ -200,11 +235,7 @@ export class SkyMap {
   // datum (undefined here). Passed straight through, the "nothing changed, do
   // nothing" guard in resize(set) would never fire, and every resize event
   // would reset the user's zoom level.
-  //
-  // The listener is named after the container: a second map on the page used
-  // to replace the first one's, so only the last map followed the window.
-  // Displaying into the same container again still replaces its own.
-  d3.select(window).on('resize.' + parentElement, function () { resize(); });
+  d3.select(window).on('resize' + namespace, function () { resize(); });
 
   if (cfg.interactive === true && cfg.controls === true && $("celestial-zoomin") === null) {
     d3.select(parentElement).append("input").attr("type", "button").attr("id", "celestial-zoomin").attr("value", "\u002b").on("click", function () { zoomBy(1.25); return false; });
@@ -227,6 +258,8 @@ export class SkyMap {
   }
 
   function load() {
+    if (life.disposed) return;
+    loadGeneration++;
     gridKey = null;
     //Background
     setClip(projectionSetting.clip);
@@ -248,7 +281,7 @@ export class SkyMap {
     }
 
     //Milky way outline
-    loadJson(path + "mw.json", function(error, json) {
+    loadData(path + "mw.json", function(error, json) {
       if (error) { 
         window.alert("Data file could not be loaded or doesn't exist. See readme.md");
         return console.warn(error);  
@@ -269,7 +302,7 @@ export class SkyMap {
     }); 
 
     //Constellation names or designation
-    loadJson(path + filename("constellations"), function(error, json) {
+    loadData(path + filename("constellations"), function(error, json) {
       if (error) return console.warn(error);
       
       var con = getData(json, cfg.transform);
@@ -283,7 +316,7 @@ export class SkyMap {
     });
 
     //Constellation boundaries
-    loadJson(path + filename("constellations", "borders"), function(error, json) {
+    loadData(path + filename("constellations", "borders"), function(error, json) {
       if (error) return console.warn(error);
       
       //var cb = getData(topojson.feature(json, json.objects.constellations_bounds), cfg.transform);
@@ -297,7 +330,7 @@ export class SkyMap {
     });
 
     //Constellation lines
-    loadJson(path + filename("constellations", "lines"), function(error, json) {
+    loadData(path + filename("constellations", "lines"), function(error, json) {
       if (error) return console.warn(error);
 
       var conl = getData(json, cfg.transform);
@@ -312,7 +345,7 @@ export class SkyMap {
     });
     
     //Stars
-    loadJson(path + cfg.stars.data, function(error, json) {
+    loadData(path + cfg.stars.data, function(error, json) {
       if (error) return console.warn(error);
 
       var st = getData(json, cfg.transform);
@@ -326,14 +359,14 @@ export class SkyMap {
     });
 
     //Star names
-    loadJson(path + filename("starnames"), function(error, json) {
+    loadData(path + filename("starnames"), function(error, json) {
       if (error) return console.warn(error);
       Object.assign(starnames, json);
       redraw();
     });
 
     //Deep space objects
-    loadJson(path + cfg.dsos.data, function(error, json) {
+    loadData(path + cfg.dsos.data, function(error, json) {
       if (error) return console.warn(error);
       
       var ds = getData(json, cfg.transform);
@@ -346,14 +379,14 @@ export class SkyMap {
     });
 
     //DSO names
-    loadJson(path + filename("dsonames"), function(error, json) {
+    loadData(path + filename("dsonames"), function(error, json) {
       if (error) return console.warn(error);
       Object.assign(dsonames, json);
       redraw();
     });
 
     //Planets, Sun & Moon
-    loadJson(path + filename("planets"), function(error, json) {
+    loadData(path + filename("planets"), function(error, json) {
       if (error) return console.warn(error);
       
       var pl = getPlanets(json, instance);
@@ -365,10 +398,10 @@ export class SkyMap {
       redraw();
     });
 
-    if (Celestial.data.length > 0) { 
+    if (legacyLayers && Celestial.data.length > 0) { 
       Celestial.data.forEach( function(d) {
-        if (has(d, "file")) loadJson(d.file, d.callback);
-        else setTimeout(d.callback, 0);
+        if (has(d, "file")) loadData(d.file, d.callback);
+        else life.schedule(d.callback, 0);
       }, this);
     }
   
@@ -378,6 +411,7 @@ export class SkyMap {
   
   // Zoom by factor; >1 larger <1 smaller 
   function zoomBy(factor) {
+    if (life.disposed) return;
     if (!factor || factor === 1) return;
     var sc0 = mapProjection.scale(),
         sc1 = sc0 * factor,
@@ -393,7 +427,7 @@ export class SkyMap {
       return 0; 
     }
     var zTween = d3.interpolateNumber(sc0, sc1);
-    d3.select({}).transition().duration(interval).tween("scale", function () {
+    d3.select(transitionNodes[0]).transition().duration(interval).tween("scale", function () {
         return function(t) {
           var z = zTween(t);
           mapProjection.scale(z); 
@@ -415,12 +449,15 @@ export class SkyMap {
   }
 
   function apply(config) {
+    if (life.disposed) return;
     cfg = merged(config); 
+    if (!base && current === instance) settings.set(cfg);
     redraw();
   }
 
 
   function rotate(config) {
+    if (life.disposed) return;
     var cFrom = cfg.center, 
         rot = mapProjection.rotate(),
         sc = mapProjection.scale(),
@@ -456,7 +493,7 @@ export class SkyMap {
     if (d === 0) cTween = function () { return cfg.center; };
     else cTween = d3.geoInterpolate(cFrom, cfg.center);
     interval = (d !== 0) ? interval * d : interval * o; // duration scaled by ang. distance
-    d3.select({}).transition().duration(interval).tween("center", function () {
+    d3.select(transitionNodes[1]).transition().duration(interval).tween("center", function () {
       return function(t) {
         var c = getAngles(cTween(t));
         c[2] = oTween(t);
@@ -476,6 +513,7 @@ export class SkyMap {
   }
   
   function resize(set) {
+    if (life.disposed) return;
     var nextWidth = getWidth();
     var nextPixelRatio = window.devicePixelRatio || 1;
     if (nextWidth === width && nextPixelRatio === pixelRatio && !set) return;
@@ -496,6 +534,7 @@ export class SkyMap {
   }
 
   function reproject(config) {
+    if (life.disposed) return;
     var prj = getProjection(config.projection, config.projectionRatio);
     if (!prj) return;
     zoomlevel = mapProjection.scale() / scale;
@@ -524,7 +563,7 @@ export class SkyMap {
     mapProjection = projectionTween(prjFrom, prjTo);
     cfg.adaptable = false;
 
-    d3.select({}).transition().duration(interval).tween("projection", function () {
+    d3.select(transitionNodes[2]).transition().duration(interval).tween("projection", function () {
       return function(_) {
         mapProjection.alpha(_).rotate(rot);
         map.projection(mapProjection);
@@ -575,7 +614,8 @@ export class SkyMap {
     });
   }
 
-  function redraw() {  
+  function redraw() {
+    if (life.disposed) return;  
     var rot = mapProjection.rotate();
     
     context.setTransform(pixelRatio,0,0,pixelRatio,0,0);
@@ -726,9 +766,9 @@ export class SkyMap {
       });
     }
 
-    if ((cfg.location || cfg.formFields.location) && cfg.planets.show && Celestial.origin && instance.instant) {
+    if ((cfg.location || cfg.formFields.location) && cfg.planets.show && instance.origin && instance.instant) {
       var dt = instance.instant(),
-          o = Celestial.origin(dt).spherical();
+          o = instance.origin(dt).spherical();
       container.selectAll(parentElement + " .planet").each(function(d) {
         var id = d.id(), r = 12 * adapt,
             p = d(dt).equatorial(o),
@@ -771,9 +811,9 @@ export class SkyMap {
       });
     }
     
-    if (layersEnabled && Celestial.data.length > 0) { 
+    if (layersEnabled && current === instance && legacyLayers && Celestial.data.length > 0) { 
       Celestial.data.forEach( function(d) {
-        d.redraw();
+        if (typeof d.redraw === "function") d.redraw();
       });
     }
     
@@ -814,7 +854,7 @@ export class SkyMap {
       zoomState(mapProjection.scale());
     }
     
-    if (hasCallback) { 
+    if (current === instance && hasCallback) { 
       Celestial.runCallback();
     }
     
@@ -1083,6 +1123,7 @@ export class SkyMap {
  
   
   function animate() {
+    if (life.disposed) return;
     if (!animations || animations.length < 1) return;
 
     var d, a = animations[animIndex];
@@ -1092,15 +1133,15 @@ export class SkyMap {
       case "center": d = rotate({center:a.value}); break;
       case "zoom": d = zoomBy(a.value);
     }
-    if (a.callback) setTimeout(a.callback, d);
+    if (a.callback) life.schedule(a.callback, d);
     animIndex++;
     if (repeat === true && animIndex === animations.length) animIndex = 0;
     d = a.duration === 0 || a.duration < d ? d : a.duration;
-    if (animIndex < animations.length) animationID = setTimeout(animate, d);
+    if (animIndex < animations.length) animationID = life.schedule(animate, d);
   }
   
   function stop() {
-    clearTimeout(animationID);
+    life.cancel(animationID);
     //animIndex = 0;
     //repeat = false;
   }
@@ -1139,6 +1180,7 @@ export class SkyMap {
     return cfg.width;
   }; 
   this.reload = function(config) { 
+    if (life.disposed) return;
     var ctr;
     //if (!config || !has(config, "transform")) return;
     //cfg.transform = config.transform; 
@@ -1181,7 +1223,7 @@ export class SkyMap {
 
   /* obsolete
   if (!has(this, "date"))
-    this.date = function() { console.log("Celestial.date() needs config.location = true to work." ); };
+    this.date = function() { console.log("instance.date() needs config.location = true to work." ); };
   */
   load();
   layersEnabled = true;
@@ -1199,7 +1241,7 @@ export class SkyMap {
 // selected constellation), by which time the global interface has already been
 // copied. Those two get forwarding accessors, so that Celestial.constellations
 // keeps working the way it used to.
-["constellations", "constellation"].forEach(function (name_) {
+["constellations", "constellation", "origin"].forEach(function (name_) {
   Object.defineProperty(Celestial, name_, {
     get: function () { return current ? current[name_] : undefined; },
     set: function (value_) { if (current) current[name_] = value_; },
@@ -1208,7 +1250,8 @@ export class SkyMap {
 });
 
 Celestial.display = function (config) {
-  var instance = new SkyMap(config);
+  var instance = new SkyMap(config, { compatibility: true });
+  current = instance;
   // Copy property descriptors rather than values: several properties on the
   // instance are getters (cfg, mapProjection, container and so on), and copying
   // by value would leave Celestial.mapProjection stale after a projection change.
@@ -1216,7 +1259,7 @@ Celestial.display = function (config) {
   var descriptors = Object.getOwnPropertyDescriptors(instance);
   for (var key_ in descriptors) {
     // do not overwrite the names that have forwarding accessors
-    if (key_ === "constructor" || key_ === "constellations" || key_ === "constellation") continue;
+    if (key_ === "constructor" || key_ === "constellations" || key_ === "constellation" || key_ === "origin" || key_ === "_lifecycle") continue;
     Object.defineProperty(Celestial, key_, descriptors[key_]);
   }
   // Now that the global interface exists, the layers can be drawn.

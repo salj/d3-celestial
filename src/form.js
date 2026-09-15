@@ -120,6 +120,7 @@ function form(sky) {
     
     cy.value = ctr[1].toFixed(1);
     cz.value = ctr[2] !== null ? ctr[2].toFixed(1) : 0;
+    config.center = ctr.slice();
     storeSettings(sky, {center: ctr});
   }
 
@@ -162,41 +163,41 @@ function form(sky) {
 
   function showAdvanced(showit) {
     var vis = showit ? "inline-block" : "none";
-    d3.select(sky.parentElement + " ~ #celestial-form").selectAll(".advanced").style("display", vis);
-    d3.select(sky.parentElement + " ~ #celestial-form").selectAll("#label-propername").style("display", showit ? "none" : "inline-block");
+    div.selectAll(".advanced").style("display", vis);
+    div.selectAll("#label-propername").style("display", showit ? "none" : "inline-block");
   }
 
   function setVisibility(cfg, which) {
      var vis, fld;
      if (!has(cfg, "formFields")) return;
      if (which && has(cfg.formFields, which)) {
-       styles_(d3.select(sky.parentElement + " ~ #celestial-form").select("#" + which), {"display": "none"});
+       styles_(div.select("#" + which), {"display": "none"});
        return;
      }
      // Special case for backward compatibility
      if (cfg.form === false && cfg.location === true) {
-       d3.select(sky.parentElement + " ~ #celestial-form").style("display", "inline-block");
+       div.style("display", "inline-block");
        for (fld in cfg.formFields) {
         if (!has(cfg.formFields, fld)) continue;
          if (fld === "location") continue;
-         styles_(d3.select(sky.parentElement + " ~ #celestial-form").select("#" + fld), {"display": "none"});     
+         styles_(div.select("#" + fld), {"display": "none"});     
        }
        return;
      }
      // hide if not desired
-     if (cfg.form === false) d3.select(sky.parentElement + " ~ #celestial-form").style("display", "none"); 
+     if (cfg.form === false) div.style("display", "none"); 
   
      for (fld in cfg.formFields) {
        if (!has(cfg.formFields, fld)) continue;
        if (fld === "location") continue;
        vis = cfg.formFields[fld] === false ? "none" : "block";
-       styles_(d3.select(sky.parentElement + " ~ #celestial-form").select("#" + fld), {"display": vis});     
+       styles_(div.select("#" + fld), {"display": vis});     
      }
      
   }
 
   function listConstellations() {
-    var sel = d3.select(sky.parentElement + " ~ #celestial-form").select("#constellation"),
+    var sel = div.select("#constellation"),
         list = [], selected = 0, id, name, config = sky.cfg;
       
     sky.container.selectAll(".constname").each( function(d, i) {
@@ -207,7 +208,7 @@ function form(sky) {
       list.push({o:id, n:name});
     });
     if (list.length < 1 || sel.length < 1) {
-      setTimeout(listConstellations, 1000);
+      sky._lifecycle.schedule(listConstellations, 1000);
       return;
     }
     list = [{o:"---", n:"(Select constellation)"}].concat(list);
@@ -222,22 +223,21 @@ function form(sky) {
     //sky.constellations = list;
   }
 
-  function $form(id) { return document.querySelector(sky.parentElement + " ~ #celestial-form" + " #" + id); }
+  function $form(id) { return div.node().querySelector("#" + id); }
 
 
   var prj = Celestial.projections(), leo = Celestial.eulerAngles();
-  var div = d3.select(sky.parentElement + " ~ #celestial-form");
-  //if div doesn't exist, create it
-  if (div.size() < 1) {
-    //var container = (config.container || "celestial-map");
-    div = d3.select(sky.parentElement).select(function() { return this.parentNode; }).append("div").attr("id", "celestial-form");
-  } else {
-    // Empty the existing form before rebuilding it. Without this, every
-    // Celestial.display() call appended another complete form: after six calls
-    // there were 469 fields instead of 67, sharing ids — and the $("...")
-    // lookups always found the first one. (A symptom of #96 and #131.)
-    div.selectAll("*").remove();
-  }
+  var host = document.querySelector(sky.parentElement);
+  var sibling = host.nextElementSibling;
+  var ownsForm = !sibling || sibling.id !== "celestial-form";
+  var node = ownsForm ? document.createElement("div") : sibling;
+  if (ownsForm) { node.id = "celestial-form"; host.parentNode.insertBefore(node, host.nextSibling); }
+  var div = d3.select(node);
+  div.selectAll("*").remove();
+  sky.formRoot = node;
+  sky._lifecycle.onDispose(function() {
+    if (ownsForm) div.remove(); else div.selectAll("*").remove();
+  });
   var ctrl = div.append("div").attr("class", "ctrl");
   var frm = ctrl.append("form").attr("id", "params").attr("name", "params").attr("method", "get").attr("action" ,"#");
   
@@ -539,7 +539,7 @@ function form(sky) {
   
   function resize() {
     var src = this,
-        w = src.value;
+        w = parseFloat(src.value);
     if (testNumber(src) === false) return; 
     config.width = w;
     sky.resize({width:w});
@@ -607,7 +607,7 @@ function form(sky) {
 
   function showCon(id) {
     var z, anims = [],
-        config = sky.standalone ? sky.cfg : globalConfig;
+        config = sky.cfg;
     if (id === "---") { 
       sky.constellation = null;
       z = sky.zoomBy();
@@ -638,7 +638,7 @@ function form(sky) {
     var sc = 1 + (360/con.scale); // > 10 ? 10 : con.scale;
     anims.push({param:"zoom", value:sc, duration:0});
     sky.constellation = id;
-    //Object.assign(globalConfig, config);   
+    //sky.apply(config);   
     sky.animate(anims, false);    
   }
   
@@ -688,7 +688,7 @@ function form(sky) {
   
   
   function setLanguage(lang) {
-    Object.assign(config, sky.standalone ? sky.cfg : globalConfig);
+    Object.assign(config, settingsOf(sky));
     config.lang = lang;
     var keys = ["constellations", "planets"]; 
     for (var i=0; i < keys.length; i++) {
@@ -710,7 +710,7 @@ function form(sky) {
     
   function update() {
     // Update all form fields
-    d3.selectAll(sky.parentElement + " ~ #celestial-form input, " + sky.parentElement + " ~  #celestial-form select").each( function(d, i) {
+    div.selectAll("input, select").each( function(d, i) {
       if (this === undefined) return;
       var id = this.id;
 
@@ -731,7 +731,7 @@ function form(sky) {
       } else if (this.type !== "button") {
         var value = get(id);      
         switch (this.type) {
-          case "checkbox": this.checked = value; enable(id); break;
+          case "checkbox": this.checked = value; enable(this); break;
           case "number": if (testNumber(this) === false) break;
                          this.value = parseFloat(get(id)); break;
           case "color": if (testColor(this) === false) break; 
@@ -759,7 +759,10 @@ function form(sky) {
   sky.showConstellation = showCon;
   sky.setLanguage = function(lang) {
     var cfg = settingsOf(sky);
-    if (formats_all[config.culture].indexOf(lang) !== -1) cfg = setLanguage(lang);
+    if (formats_all[config.culture].indexOf(lang) !== -1) {
+      cfg = setLanguage(lang);
+      sky.apply(cfg);
+    }
     return cfg;    
   };
   // This map's own form interface. These used to be module-level functions

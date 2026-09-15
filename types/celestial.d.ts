@@ -462,6 +462,8 @@ export declare class SkyMap {
   animate(steps: Array<{ param: string; value: unknown; duration?: number; callback?: () => void }>,
           repeat?: boolean): void;
   stop(clear?: boolean): void;
+  /** Dispose this map, its listeners, timers and pending loads. Idempotent. */
+  destroy(): void;
   go(index?: number): void;
 
   color(type_?: string): string;

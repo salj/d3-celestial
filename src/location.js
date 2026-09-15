@@ -5,7 +5,7 @@ import { datetimepicker } from "./datetimepicker.js";
 import { testNumber } from "./form.js";
 import { horizontal } from "./horizontal.js";
 import { Celestial } from "./core.js";
-import { Round, has, hasParent, isArray, isNumber, isValidDate, loadJson, pad, styles_ } from "./util.js";
+import { Round, has, isArray, isNumber, isValidDate, loadJson, pad, styles_ } from "./util.js";
 
 var geoInfo = null;
 
@@ -25,7 +25,7 @@ function geo(sky) {
       localZone = -date.getTimezoneOffset(),
       timeZone = localZone,
       config = sky.standalone ? settings.set(null, cfg) : settings.set(cfg),
-      frm = d3.select(sky.parentElement + " ~ #celestial-form form").insert("div", "div#general").attr("id", "loc");
+      frm = d3.select(sky.formRoot).select("form").insert("div", "div#general").attr("id", "loc");
 
   var dtpick = new datetimepicker(sky, function(date, tz) { 
     $form("datetime").value = dateFormat(date, tz); 
@@ -115,12 +115,11 @@ function geo(sky) {
   showAdvanced(config.advanced);
   
 
-  // Named after the map's container, like the window resize listener: without
-  // a name, each map replaced the previous one's, and only the last map's
-  // picker closed on an outside click.
-  d3.select(document).on("mousedown." + sky.parentElement, function (event_) { 
-    if (!hasParent(event_.target, "celestial-date") && dtpick.isVisible()) dtpick.hide(); 
-  });
+  function dismissPicker(event_) { 
+    if (!sky.formRoot.contains(event_.target) && dtpick.isVisible()) dtpick.hide();
+  }
+  document.addEventListener("mousedown", dismissPicker);
+  sky._lifecycle.onDispose(function() { document.removeEventListener("mousedown", dismissPicker); });
   
   function now() {
     date.setTime(Date.now());
@@ -130,6 +129,7 @@ function geo(sky) {
 
   function here() {
     navigator.geolocation.getCurrentPosition( function(pos) {
+      if (sky._lifecycle.disposed) return;
       geopos = [Round(pos.coords.latitude, 4), Round(pos.coords.longitude, 4)];
       $form("lat").value = geopos[0];
       $form("lon").value = geopos[1];
@@ -381,11 +381,11 @@ function geo(sky) {
   };
 
   if (has(config, "formFields") && (config.location === true || config.formFields.location === true)) {
-    styles_(d3.select(sky.parentElement + " ~ #celestial-form").select("#location"), {"display": "inline-block"});
+    styles_(d3.select(sky.formRoot).select("#location"), {"display": "inline-block"});
   }
   //only if appropriate
   if (isValidLocation(geopos) && (config.location === true || config.formFields.location === true) && config.follow === "zenith")
-    setTimeout(go, 1000); 
+    sky._lifecycle.schedule(go, 1000); 
  
 }
 

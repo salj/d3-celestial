@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { start } from "./server.mjs";
 import { compare } from "./compare.mjs";
+import { checkInstances } from "./instance-checks.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 8899;
@@ -254,6 +255,8 @@ async function smokeTest(page) {
   check("renders without a container and without a width",
     !base.error_ && base.widthPx > 200 && base.csillagok > 1000,
     base.error_ || base.widthPx + " px, " + base.csillagok + " stars");
+
+  await checkInstances(page, check, `http://127.0.0.1:${PORT}`);
 
   check("no console errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 }

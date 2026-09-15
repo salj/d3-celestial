@@ -32,8 +32,8 @@ var settings = {
   projection: "aitoff",  // Map projection used: airy, aitoff, armadillo, august, azimuthalEqualArea, azimuthalEquidistant, baker, berghaus, boggs, bonne, bromley, collignon, craig, craster, cylindricalEqualArea, cylindricalStereographic, eckert1, eckert2, eckert3, eckert4, eckert5, eckert6, eisenlohr, equirectangular, fahey, foucaut, ginzburg4, ginzburg5, ginzburg6, ginzburg8, ginzburg9, gringorten, hammer, hatano, healpix, hill, homolosine, kavrayskiy7, lagrange, larrivee, laskowski, loximuthal, mercator, miller, mollweide, mtFlatPolarParabolic, mtFlatPolarQuartic, mtFlatPolarSinusoidal, naturalEarth, nellHammer, orthographic, patterson, polyconic, rectangularPolyconic, robinson, sinusoidal, stereographic, times, twoPointEquidistant, vanDerGrinten, vanDerGrinten2, vanDerGrinten3, vanDerGrinten4, wagner4, wagner6, wagner7, wiechel, winkel3
   projectionRatio: null, // Optional override for default projection ratio
   transform: "equatorial", // Coordinate transformation: equatorial (default), ecliptic, galactic, supergalactic
-  center: null,       // Initial center coordinates in equatorial transformation [hours, degrees, degrees], 
-                      // otherwise [degrees, degrees, degrees], 3rd parameter is orientation, null = default center
+  center: null,       // Sky longitude, latitude and orientation, all in degrees.
+                      // The equatorial form displays longitude in hours.
   geopos: null,       // optional initial geographic position [lat,lon] in degrees, overrides center
   follow: "zenith",   // on which coordinates to center the map, default: zenith, if location enabled, otherwise center
   orientationfixed: true,  // Keep orientation angle the same as center[2]

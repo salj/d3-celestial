@@ -118,7 +118,8 @@ export interface Config {
     download?: boolean;
   };
   advanced?: boolean;
-  daterange?: Date[];
+  /** Inclusive years, or [radius], or [centerYear, radius]. */
+  daterange?: number[];
   /** Initial absolute instant. Defaults to the current time. */
   date?: Date | null;
   /** Initial display offset, in minutes east of UTC. */

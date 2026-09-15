@@ -32,7 +32,9 @@ Rendering requires a DOM and Canvas even when the package is imported in Node.
 Standalone maps initialize from defaults and their supplied configuration.
 Use `apply()` for styles, `rotate()` for the center, `zoomBy()` for relative
 zoom and `resize()` for dimensions. Configuration and method types are in
-[types/celestial.d.ts](types/celestial.d.ts).
+[types/celestial.d.ts](types/celestial.d.ts). Call `destroy()` on unmount.
+See [usage notes](docs/06-usage.md) for lifecycle, styling, zoom, calendar ranges,
+grid labels and catalogue examples.
 
 ## Timezone lookup
 

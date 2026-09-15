@@ -250,7 +250,10 @@ export class SkyMap {
   if ($("error") === null) d3.select("body").append("div").attr("id", "error");
 
   if ($("loc") === null) geo(this);
-  else if (cfg.location === true && cfg.follow === "zenith" && instance.zenith) rotate({center: instance.zenith()});
+  if ((cfg.location || cfg.formFields.location) && cfg.follow === "zenith" && instance.zenith) {
+    cfg.center = instance.zenith().slice();
+    mapProjection.rotate(getAngles(cfg.center));
+  }
 
   if (cfg.location === true || cfg.formFields.location === true) {
     d3.select(parentElement + " #location").style("display", "inline-block");

@@ -34,8 +34,7 @@ function exportSVG(sky, done, fname) {
   var constellation = sky.constellation,
       starnames = JSON.parse(JSON.stringify(sky.starnames)),
       dsonames = JSON.parse(JSON.stringify(sky.dsonames)),
-      date = typeof sky.instant === "function" ? new Date(sky.instant().valueOf()) :
-             typeof sky.date === "function" ? new Date(sky.date().valueOf()) : null,
+      date = typeof sky.date === "function" ? new Date(sky.date().valueOf()) : null,
       zenith = typeof sky.zenith === "function" ? sky.zenith().slice() : null,
       nadir = typeof sky.nadir === "function" ? sky.nadir().slice() : null,
       planets = [],

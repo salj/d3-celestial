@@ -47,7 +47,26 @@ Celestial.display({
 
 The resolver takes precedence over an explicit `timezoneid` for the legacy
 TimeZoneDB integration. Rejected or invalid resolver results use the longitude
-estimate. This does not resolve the remaining DST/date-update behavior.
+estimate. Lookups refresh when the instant or coordinates change; stale replies
+are discarded. An explicit offset suppresses lookup for that update. To keep a
+fixed offset across subsequent updates, set `settimezone: false`.
+
+Dates are absolute instants. Offsets are minutes east of UTC and only control
+the displayed calendar; changing an offset does not move the sky. Initialize
+with `date`, `geopos: [latitude, longitude]` and `timezone`, or update atomically:
+
+```js
+sky.skyview({
+  date: new Date("2026-03-29T01:00:00Z"),
+  location: [59.33, 18.07],
+  timezone: 0
+});
+```
+
+`sky.date()` returns a copy of the instant. `sky.timezone(0)` selects UTC.
+Calendar controls use the selected offset, independent of the browser's DST.
+`center` remains sky longitude, latitude and orientation in degrees; it is not
+geographic latitude/longitude.
 
 ## Develop
 

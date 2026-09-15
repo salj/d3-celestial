@@ -1,13 +1,13 @@
 import * as d3 from "./d3.js";
 
-import { formats, settings, settingsOf } from "./config.js";
+import { formats, settings } from "./config.js";
 import { datetimepicker } from "./datetimepicker.js";
 import { testNumber } from "./form.js";
 import { horizontal } from "./horizontal.js";
 import { Celestial } from "./core.js";
-import { Round, has, isArray, isNumber, isValidDate, loadJson, pad, styles_ } from "./util.js";
+import { Round, has, isArray, isNumber, isValidDate, pad, styles_ } from "./util.js";
 
-var geoInfo = null;
+import { createTimezoneLookup, isValidTimezone, toWallTime } from "./time.js";
 
 // Observer location and time controls for one map. It receives the instance
 // because its input fields live on that map's settings form.
@@ -16,27 +16,24 @@ function geo(sky) {
   var $form = sky.form.$form,
       enable = sky.form.enable,
       showAdvanced = sky.form.showAdvanced;
-  var dtFormat = d3.timeFormat("%Y-%m-%d %H:%M:%S"),
-      // in v3 the formatter could also parse; in v7 that is a separate function
-      dtParse = d3.timeParse("%Y-%m-%d %H:%M:%S"),
+  var dtFormat = d3.utcFormat("%Y-%m-%d %H:%M:%S"),
       zenith = [0,0],
       geopos = [0,0], 
-      date = new Date(),
-      localZone = -date.getTimezoneOffset(),
-      timeZone = localZone,
-      config = sky.standalone ? settings.set(null, cfg) : settings.set(cfg),
+      date = isValidDate(cfg.date) ? new Date(cfg.date.valueOf()) : new Date(),
+      timeZone = isValidTimezone(cfg.timezone) ? cfg.timezone : -date.getTimezoneOffset(),
+      config = settings.set(cfg, cfg),
       frm = d3.select(sky.formRoot).select("form").insert("div", "div#general").attr("id", "loc");
 
-  var dtpick = new datetimepicker(sky, function(date, tz) { 
-    $form("datetime").value = dateFormat(date, tz); 
+  var dtpick = new datetimepicker(sky, function(instant, tz) {
+    date = new Date(instant.valueOf());
     timeZone = tz;
-    go(); 
+    go(true);
   });
   
-  if (has(config, "geopos") && config.geopos !== null && config.geopos.length === 2) geopos = config.geopos;
+  if (has(config, "geopos") && config.geopos !== null && config.geopos.length === 2) geopos = config.geopos.slice();
   var col = frm.append("div").attr("class", "col").attr("id", "location").style("display", "none");
   //Latitude & longitude fields
-  col.append("label").attr("title", "Location coordinates long/lat").attr("for", "lat").html("Location");
+  col.append("label").attr("title", "Location coordinates lat/lon").attr("for", "lat").html("Location");
   col.append("input").attr("type", "number").attr("id", "lat").attr("title", "Latitude").attr("placeholder", "Latitude").attr("max", "90").attr("min", "-90").attr("step", "0.0001").attr("value", geopos[0]).on("change",  function () {
     if (testNumber(this) === true) go(); 
   });
@@ -52,7 +49,7 @@ function geo(sky) {
   //Datetime field with dtpicker-button
   col.append("label").attr("title", "Local date/time").attr("for", "datetime").html(" Date/time");
   col.append("input").attr("type", "button").attr("id", "day-left").attr("title", "One day back").on("click", function () {
-    date.setDate(date.getDate() - 1); 
+    date.setUTCDate(date.getUTCDate() - 1);
     $form("datetime").value = dateFormat(date, timeZone); 
     go(); 
   });
@@ -63,7 +60,7 @@ function geo(sky) {
   });
   col.append("div").attr("id", "datepick").on("click", showpick);
   col.append("input").attr("type", "button").attr("id", "day-right").attr("title", "One day forward").on("click", function () { 
-    date.setDate(date.getDate() + 1); 
+    date.setUTCDate(date.getUTCDate() + 1);
     $form("datetime").value = dateFormat(date, timeZone); 
     go(); 
   });
@@ -150,7 +147,7 @@ function geo(sky) {
           s = tz > 0 ? " +" : " −";
       tzs = s + pad(h) + pad(m);
     }
-    return dtFormat(dt) + tzs;
+    return dtFormat(toWallTime(dt, +tz || 0)) + tzs;
   }  
   
 
@@ -162,14 +159,8 @@ function geo(sky) {
     return true;
   }
 
-  function isValidTimezone(tz) {
-    if (tz === undefined || tz === null) return false;
-    if (!isNumber(tz) || Math.abs(tz) > 840) return false;   // was `&&`: nothing was ever rejected
-    return true;    
-  }
-  
   function apply() {
-    Object.assign(config, settingsOf(sky));
+    Object.assign(config, sky.cfg);
     config.horizon.show = !!$form("horizon-show").checked;
     config.daylight.show = !!$form("daylight-show").checked;
     config.planets.show = !!$form("planets-show").checked;    
@@ -181,198 +172,66 @@ function geo(sky) {
     sky.apply(config);
   }
 
-  function go() {
-    var lon = parseFloat($form("lon").value),
-        lat = parseFloat($form("lat").value),
-        tz;
-    //Get current configuration
-    Object.assign(config, settingsOf(sky));
-
-    date = dtParse($form("datetime").value.slice(0,-6));
-
-    //sky.apply(config);
-
-    if (!isNaN(lon) && !isNaN(lat)) {
-      if (lat !== geopos[0] || lon !== geopos[1]) {
-        geopos = [lat, lon];
-        setPosition([lat, lon], true);
-        return;
-      }
-      //if (!tz) tz = date.getTimezoneOffset();
-      $form("datetime").value = dateFormat(date, timeZone); 
-
-      var dtc = instant();
-
-      zenith = Celestial.getPoint(horizontal.inverse(dtc, [90, 0], geopos), config.transform);
-      zenith[2] = 0;
-      if (config.follow === "zenith") {
-        sky.rotate({center:zenith});
-      } else {
-        sky.redraw();
-      }
-    }
-  }
-
-  
-  // Longitude-based estimate: 15 degrees per hour. This is what the code has
-  // always fallen back to when the lookup failed ("location at sea"); now it is
-  // also what happens when no lookup is configured at all.
-  function estimateZone(p, timestamp) {
-    timeZone = Math.round(p[1] / 15) * 60;
-    geoInfo = { gmtOffset: timeZone * 60, message: "Estimated from longitude", timestamp: timestamp };
-  }
-
-  function applyZone() {
+  var refreshZone = createTimezoneLookup(sky._lifecycle, function(offset) {
+    timeZone = offset;
     $form("datetime").value = dateFormat(date, timeZone);
-    go();
+  });
+
+  function updateZenith() {
+    zenith = Celestial.getPoint(horizontal.inverse(date, [90, 0], geopos), sky.cfg.transform);
+    zenith[2] = 0;
   }
 
-  // Resolving the UTC offset of a position needs a time zone database, which is
-  // not something a browser exposes for an arbitrary point on Earth — only for
-  // the viewer's own zone. So it takes an outside source.
-  //
-  // The library ships neither an API key nor an endpoint. Upstream baked in the
-  // author's TimeZoneDB account id, which meant every page using the library
-  // sent its visitors' coordinates to a third party, by default, on a shared
-  // quota. Configure one of these instead:
-  //
-  //   timezoneResolver: (lat, lon, whenSeconds) => Promise<offsetInMinutes>
-  //   timezoneid: "<your own TimeZoneDB key>"   (the upstream route, unchanged)
-  //
-  // With neither, no request is made and the offset is estimated from longitude.
-  function setPosition(p, settime) {
-    if (!p) return;
-    // Without a time zone lookup the new position still has to be drawn, in
-    // the zone as it is. This used to return, and the map did not move.
-    if (!has(config, "settimezone") || config.settimezone === false) { applyZone(); return; }
-    var timestamp = Math.floor(date.getTime() / 1000);
-
-    if (typeof config.timezoneResolver === "function") {
-      // Called inside the executor, so a resolver that throws synchronously
-      // ends up in the rejection branch too — with Promise.resolve(call) the
-      // exception escaped before any promise existed, and the documented
-      // fallback never ran.
-      new Promise(function (ok) {
-        ok(config.timezoneResolver(p[0], p[1], timestamp));
-      }).then(function (offset) {
-        if (Number.isFinite(offset)) {
-          timeZone = offset;
-          geoInfo = { gmtOffset: offset * 60, message: "From timezoneResolver", timestamp: timestamp };
-        } else {
-          estimateZone(p, timestamp);
-        }
-        applyZone();
-      }, function (err) {
-        console.warn("timezoneResolver failed, estimating from longitude:", err);
-        estimateZone(p, timestamp);
-        applyZone();
-      });
-      return;
-    }
-
-    if (!config.timezoneid) {
-      estimateZone(p, timestamp);
-      applyZone();
-      return;
-    }
-
-    var protocol = window && window.location.protocol === "https:" ? "https" : "http",
-        url = protocol + "://api.timezonedb.com/v2.1/get-time-zone?key=" + config.timezoneid + "&format=json&by=position" +
-              "&lat=" + p[0] + "&lng=" + p[1] + "&time=" + timestamp;
-
-    loadJson(url, function(error, json) {
-      // A failed request falls back to the estimate, as a failed resolver
-      // does; it used to leave the map where it was.
-      if (error) {
-        console.warn(error);
-        estimateZone(p, timestamp);
-        applyZone();
-        return;
-      }
-      if (json.status === "FAILED") {
-        estimateZone(p, timestamp);
-      } else {
-        timeZone = json.gmtOffset / 60;
-        geoInfo = json;
-      }
-      applyZone();
-    });
+  function go(explicit) {
+    if (sky._lifecycle.disposed) return;
+    var position = [parseFloat($form("lat").value), parseFloat($form("lon").value)];
+    if (!isValidLocation(position)) return;
+    geopos = position;
+    $form("datetime").value = dateFormat(date, timeZone);
+    updateZenith();
+    refreshZone(geopos.slice(), date, sky.cfg, explicit === true);
+    if (sky.cfg.follow === "zenith") sky.rotate({center: zenith});
+    else sky.redraw();
   }
 
   sky.dateFormat = dateFormat;
   
-  sky.date = function (dt, tz) { 
-    if (!dt) return date;  
-    if (isValidTimezone(tz)) timeZone = tz;
-    Object.assign(config, settingsOf(sky));
-    if (dtpick.isVisible()) dtpick.hide();
-    date.setTime(dt.valueOf());
-    $form("datetime").value = dateFormat(dt, timeZone); 
-    go();
+  sky.date = function(dt, tz) {
+    if (dt === undefined) return new Date(date.valueOf());
+    if (!isValidDate(dt)) return;
+    sky.skyview({date: dt, timezone: tz});
   };
-  sky.timezone = function (tz) { 
-    if (tz === undefined || tz === null) return timeZone;   // not `!tz`: 0 is UTC
-    if (isValidTimezone(tz)) timeZone = tz;
-    Object.assign(config, settingsOf(sky));
-    if (dtpick.isVisible()) dtpick.hide();
-    $form("datetime").value = dateFormat(date, timeZone); 
-    go();
+  sky.timezone = function(tz) {
+    if (tz === undefined) return timeZone;
+    if (isValidTimezone(tz)) sky.skyview({timezone: tz});
   };
-  sky.position = function () { return geopos; };
-  sky.location = function (loc, tz) {
-    if (!loc || loc.length < 2) return geopos;
-    if (isValidLocation(loc)) {
-      geopos = loc.slice();
+  sky.position = function() { return geopos.slice(); };
+  sky.location = function(loc, tz) {
+    if (loc === undefined) return geopos.slice();
+    if (isValidLocation(loc)) sky.skyview({location: loc, timezone: tz});
+  };
+  // Apply the instant, geographic position and display offset atomically.
+  sky.skyview = function(view) {
+    if (!view) return {date: new Date(date.valueOf()), location: geopos.slice(), timezone: timeZone};
+    if (sky._lifecycle.disposed) return;
+    var explicit = isValidTimezone(view.timezone), changed = explicit;
+    if (explicit) timeZone = view.timezone;
+    if (isValidDate(view.date)) {
+      date = new Date(view.date.valueOf());
+      changed = true;
+    }
+    if (isValidLocation(view.location)) {
+      geopos = view.location.slice();
       $form("lat").value = geopos[0];
       $form("lon").value = geopos[1];
-      if (isValidTimezone(tz)) { timeZone = tz; applyZone(); }   // the map used to stay put
-      else setPosition(geopos, true);
+      changed = true;
     }
-  };
-  //{"date":dt, "location":loc, "timezone":tz}
-  sky.skyview = function (cfg) {
-    if (!cfg) return {"date": date, "location": geopos, "timezone": timeZone};
-    var valid = false;
+    if (!changed) return sky.skyview();
     if (dtpick.isVisible()) dtpick.hide();
-    if (has(cfg, "timezone") && isValidTimezone(cfg.timezone)) {
-      timeZone = cfg.timezone;
-      valid = true;
-    }
-    if (has(cfg, "date") && isValidDate(cfg.date)) {
-      date.setTime(cfg.date.valueOf());
-      $form("datetime").value = dateFormat(cfg.date, timeZone); 
-      valid = true;
-    }
-    if (has(cfg, "location") && isValidLocation(cfg.location)) {
-      geopos = cfg.location.slice();
-      $form("lat").value = geopos[0];
-      $form("lon").value = geopos[1];
-      if (!has(cfg, "timezone")) { 
-        setPosition(geopos, !has(cfg, "date"));
-        return;
-      }
-    }
-    //sky.updateForm();
-    if (valid === false) return {"date": date, "location": geopos, "timezone": timeZone};
-    if (config.follow === "zenith") go();
-    else sky.redraw();
-  };  
+    go(explicit);
+  };
   sky.dtLoc = sky.skyview;
   sky.zenith = function () { return zenith; };
-
-  // The moment the map shows. `date` holds the entered wall-clock time read
-  // as the browser's local time, so the browser's offset AT THAT DATE comes
-  // off (not that of the day the page was loaded — an hour out across a
-  // daylight saving change) and the entered zone's offset goes on.
-  //
-  // date() keeps returning the wall-clock value, as upstream did. The Sun,
-  // the Moon and the planets used to be computed from it, while the zenith
-  // used this instant: viewing Tokyo from a browser in Budapest put them
-  // seven hours out — the Moon by some 3.5 degrees.
-  function instant() {
-    return new Date(date.valueOf() - (timeZone + date.getTimezoneOffset()) * 60000);
-  }
-  sky.instant = instant;
   sky.nadir = function () {
     var b = -zenith[1],
         l = zenith[0] + 180;
@@ -383,10 +242,11 @@ function geo(sky) {
   if (has(config, "formFields") && (config.location === true || config.formFields.location === true)) {
     styles_(d3.select(sky.formRoot).select("#location"), {"display": "inline-block"});
   }
-  //only if appropriate
-  if (isValidLocation(geopos) && (config.location === true || config.formFields.location === true) && config.follow === "zenith")
-    sky._lifecycle.schedule(go, 1000); 
- 
+  // Establish the observer before the constructor positions or loads the map.
+  // The resolver only changes the displayed offset; it never moves the instant.
+  updateZenith();
+  refreshZone(geopos.slice(), date, sky.cfg, isValidTimezone(cfg.timezone));
+
 }
 
 export { geo };

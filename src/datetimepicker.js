@@ -1,7 +1,9 @@
 import * as d3 from "./d3.js";
 
 import { testNumber } from "./form.js";
-import { dateDiff, isNumber, classes_, px, styles_ } from "./util.js";
+import { isNumber, classes_, px, styles_ } from "./util.js";
+
+import { fromWallTime, toWallTime } from "./time.js";
 
 // Date and time picker belonging to one map. It receives the instance because
 // its fields live on that map's settings form.
@@ -9,13 +11,14 @@ var datetimepicker = function(sky, callback) {
   var cfg = sky.cfg;
   var $form = sky.form.$form;
   var date = new Date(), 
-      tzFormat = d3.timeFormat("%Z"),
+      hideTimer,
+      offset = -date.getTimezoneOffset(),
       tz = [{"−12:00":-720}, {"−11:00":-660}, {"−10:00":-600}, {"−09:30":-570}, {"−09:00":-540}, {"−08:00":-480}, {"−07:00":-420}, {"−06:00":-360}, {"−05:00":-300}, {"−04:30":-270}, {"−04:00":-240}, {"−03:30":-210}, {"−03:00":-180}, {"−02:30":-150}, {"−02:00":-120}, {"−01:00":-60}, {"±00:00":0}, {"+01:00":60}, {"+02:00":120}, {"+03:00":180}, {"+03:30":210}, {"+04:00":240}, {"+04:30":270}, {"+05:00":300}, {"+05:30":330}, {"+05:45":345}, {"+06:00":360}, {"+06:30":390}, {"+07:00":420}, {"+08:00":480}, {"+08:30":510}, {"+08:45":525}, {"+09:00":540}, {"+09:30":570}, {"+10:00":600}, {"+10:30":630}, {"+11:00":660}, {"+12:00":720}, {"+12:45":765}, {"+13:00":780}, {"+14:00":840}],
       months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
       days = ["Su", "M", "Tu", "W", "Th", "F", "Sa"],
       years = getYears(date),
-      dateFormat = d3.timeFormat("%Y-%m-%d"),
-      dateParse = d3.timeParse("%Y-%m-%d"),
+      dateFormat = d3.utcFormat("%Y-%m-%d"),
+      dateParse = d3.utcParse("%Y-%m-%d"),
       dtrange = cfg.daterange || [];
     
   var picker = d3.select(sky.formRoot).append("div").attr("id", "celestial-date");
@@ -33,12 +36,12 @@ var datetimepicker = function(sky, callback) {
   
   function daySel() {
     var mo = $form("mon").value, yr = $form("yr").value,
-        curdt = new Date(yr, mo, 1),
+        curdt = new Date(Date.UTC(yr, mo, 1)),
         cal = d3.select(sky.formRoot).select("#cal"),
-        today = new Date();
+        today = toWallTime(new Date(), offset);
     yr = parseInt(yr);   
     mo = parseInt(mo);   
-    curdt.setDate(curdt.getDate() - curdt.getDay());
+    curdt.setUTCDate(curdt.getUTCDate() - curdt.getUTCDay());
     var nd = cal.node();
     while (nd.firstChild) nd.removeChild(nd.firstChild);
     
@@ -46,18 +49,18 @@ var datetimepicker = function(sky, callback) {
       classes_(cal.append("div"), {"date": true, "weekday": true}).html(days[i]);
     }
     for (i=0; i<42; i++) {
-      var curmon = curdt.getMonth(), curday = curdt.getDay(), curid = dateFormat(curdt);
+      var curmon = curdt.getUTCMonth(), curday = curdt.getUTCDay(), curid = dateFormat(curdt);
       classes_(cal.append("div"), {
         "date": true, 
         "grey": curmon !== mo,
         "weekend": curmon === mo && (curday === 0 || curday === 6),
-        "today": dateDiff(curdt, today) === 0,
-        "selected": dateDiff(curdt, date) === 0
+        "today": dateFormat(curdt) === dateFormat(today),
+        "selected": dateFormat(curdt) === dateFormat(date)
       }).attr("id", curid)
       .on("click", pick)
-      .html(curdt.getDate().toString());
+      .html(curdt.getUTCDate().toString());
       
-      curdt.setDate(curdt.getDate()+1);
+      curdt.setUTCDate(curdt.getUTCDate()+1);
     }
   }
 
@@ -69,7 +72,7 @@ var datetimepicker = function(sky, callback) {
 
   function fillYrSel() { 
     var sel = d3.select(sky.formRoot).select("select#yr"),
-        year = date.getFullYear(),
+        year = date.getUTCFullYear(),
         selected = 0,
         years = getYears(date);
         
@@ -85,7 +88,7 @@ var datetimepicker = function(sky, callback) {
   function monSel() { 
     var sel = picker.append("select").attr("title", "Month").attr("id", "mon").on("change", daySel),
         selected = 0,
-        month = date.getMonth();
+        month = date.getUTCMonth();
     
     sel.selectAll('option').data(months).enter().append('option')
        .attr("value", function (d, i) { 
@@ -116,11 +119,11 @@ var datetimepicker = function(sky, callback) {
   }
 
   function timeSel() { 
-    picker.append("input").attr("type", "number").attr("id", "hr").attr("title", "Hours").attr("max", "24").attr("min", "-1").attr("step", "1").attr("value", date.getHours()).on("change", function () { if (testNumber(this) === true) pick(); });
+    picker.append("input").attr("type", "number").attr("id", "hr").attr("title", "Hours").attr("max", "24").attr("min", "-1").attr("step", "1").attr("value", date.getUTCHours()).on("change", function () { if (testNumber(this) === true) pick(); });
 
-    picker.append("input").attr("type", "number").attr("id", "min").attr("title", "Minutes").attr("max", "60").attr("min", "-1").attr("step", "1").attr("value", date.getMinutes()).on("change", function () { if (testNumber(this) === true) pick(); });
+    picker.append("input").attr("type", "number").attr("id", "min").attr("title", "Minutes").attr("max", "60").attr("min", "-1").attr("step", "1").attr("value", date.getUTCMinutes()).on("change", function () { if (testNumber(this) === true) pick(); });
     
-    picker.append("input").attr("type", "number").attr("id", "sec").attr("title", "Seconds").attr("max", "60").attr("min", "-1").attr("step", "1").attr("value", date.getSeconds()).on("change", function () { if (testNumber(this) === true) pick(); });
+    picker.append("input").attr("type", "number").attr("id", "sec").attr("title", "Seconds").attr("max", "60").attr("min", "-1").attr("step", "1").attr("value", date.getUTCSeconds()).on("change", function () { if (testNumber(this) === true) pick(); });
   }
   
   function tzSel() { 
@@ -138,7 +141,7 @@ var datetimepicker = function(sky, callback) {
   }
   
   function getYears(dt) {
-    var r = getDateRange(dt.getFullYear()), res = [];
+    var r = getDateRange(dt.getUTCFullYear()), res = [];
     for (var i = r[0]; i <= r[1]; i++) res.push(i);
     return res;
   }  
@@ -170,12 +173,12 @@ var datetimepicker = function(sky, callback) {
   function set(dt) {
      if (dt) date.setTime(dt.valueOf());
      
-     select("yr", date.getFullYear());
-     select("mon", date.getMonth());
+     select("yr", date.getUTCFullYear());
+     select("mon", date.getUTCMonth());
      daySel();
-     $form("hr").value = date.getHours();
-     $form("min").value = date.getMinutes();
-     $form("sec").value = date.getSeconds();
+     $form("hr").value = date.getUTCHours();
+     $form("min").value = date.getUTCMinutes();
+     $form("sec").value = date.getUTCSeconds();
   } 
   
   this.show = function(dt, tz) {
@@ -184,8 +187,14 @@ var datetimepicker = function(sky, callback) {
         left = src.offsetLeft + src.offsetWidth - nd.offsetWidth,
         top = src.offsetTop - nd.offsetHeight - 1;
   
-    if (nd.offsetTop === -9999) {
-      date.setTime(dt.valueOf());
+    if (!this.isVisible()) {
+      sky._lifecycle.cancel(hideTimer);
+      offset = tz;
+      date = toWallTime(dt, tz);
+      fillYrSel();
+      if (!Array.from($form("tz").options).some(function(option) { return +option.value === tz; })) {
+        d3.select($form("tz")).append("option").attr("value", tz).text("UTC offset " + tz + " min");
+      }
       select("tz", tz);
       set();
       styles_(d3.select(sky.formRoot).select("#celestial-date"),
@@ -209,7 +218,8 @@ var datetimepicker = function(sky, callback) {
     d3.select(sky.formRoot).select("#celestial-date").style("opacity", 0);
     styles_(d3.select("#error"), {top:"-9999px", left:"-9999px", opacity:0}); 
     d3.select(sky.formRoot).select("#datepick").classed("active", false);
-    sky._lifecycle.schedule(function () { $form("celestial-date").style.top = px(-9999); }, 600);    
+    sky._lifecycle.cancel(hideTimer);
+    hideTimer = sky._lifecycle.schedule(function () { $form("celestial-date").style.top = px(-9999); }, 600);
   }
   
   // `this` is the clicked day cell or the time zone select. The hour, minute
@@ -224,10 +234,11 @@ var datetimepicker = function(sky, callback) {
     }
     fillYrSel();
     
-    date.setHours(h, m, s);
+    date.setUTCHours(h, m, s);
     set();
     
-    callback(date, tz);
+    offset = +tz;
+    callback(fromWallTime(date, offset), offset);
   } 
   
   

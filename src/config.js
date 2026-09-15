@@ -38,7 +38,9 @@ var settings = {
   advanced: true,     // Display fewer form fields if false
   daterange: [],      // Calender date range; null: displaydate-+10; [n<100]: displaydate-+n; [yr]: yr-+10; 
                       // [yr, n<100]: [yr-n, yr+n]; [yr0, yr1]
-  settimezone: true,  // Automatcally set time zone when geolocation changes
+  date: null,        // Initial instant as a Date; null uses the current time.
+  timezone: null,    // Initial display offset in minutes east of UTC; zero is UTC.
+  settimezone: true,  // Resolve display offsets when the instant or position changes
   timezoneid: "",     // Your own TimeZoneDB account id. Empty: no request is made,
                       // the offset is estimated from longitude. See timezoneResolver.
   timezoneResolver: null, // (lat, lon, whenSeconds) => Promise<offsetInMinutes>, or null.

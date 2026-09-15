@@ -119,6 +119,10 @@ export interface Config {
   };
   advanced?: boolean;
   daterange?: Date[];
+  /** Initial absolute instant. Defaults to the current time. */
+  date?: Date | null;
+  /** Initial display offset, in minutes east of UTC. */
+  timezone?: number | null;
   settimezone?: boolean;
   /** Your own TimeZoneDB account id. Empty (the default) means no request is
    *  made and the UTC offset is estimated from longitude. */
@@ -475,21 +479,21 @@ export declare class SkyMap {
   setStyleA(rank: number, style_: Record<string, unknown>): void;
   setConstStyle(rank: number, font: string | string[]): void;
 
-  /** Csak `location: true` mellett. */
-  date?(date_?: Date, tz?: number): Date;
+  /** Dates are absolute instants; setters optionally supply a display offset. */
+  date?(): Date;
+  date?(date_: Date, tz?: number): void;
   dateFormat?(date_: Date, tz: number): string;
   zenith?(): Center;
-  /**
-   * The moment the map shows: `date()`'s wall-clock time taken in the
-   * observer's time zone. The Sun, the Moon and the planets are computed for it.
-   */
-  instant?(): Date;
   nadir?(): Center;
   position?(): [number, number];
-  location?(be: boolean): void;
+  location?(): [number, number];
+  location?(position: [number, number], tz?: number): void;
   timezone?(): number;
-  skyview?(config?: unknown): unknown;
-  dtLoc?(): unknown;
+  timezone?(offset: number): void;
+  skyview?(): { date: Date; location: [number, number]; timezone: number };
+  skyview?(config: { date?: Date; location?: [number, number]; timezone?: number }): void;
+  dtLoc?(): { date: Date; location: [number, number]; timezone: number };
+  dtLoc?(config: { date?: Date; location?: [number, number]; timezone?: number }): void;
 
   showConstellation?(id: string): void;
   setLanguage?(language: string): Config;

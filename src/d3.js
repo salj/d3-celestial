@@ -15,7 +15,7 @@ export {
 } from "d3-geo";
 export { interpolateNumber, interpolateLab } from "d3-interpolate";
 export { scaleQuantize } from "d3-scale";
-export { timeFormat, timeParse } from "d3-time-format";
+export { timeFormat, timeParse, utcFormat, utcParse } from "d3-time-format";
 export {
   symbol, symbolCircle, symbolCross, symbolDiamond,
   symbolSquare, symbolStar, symbolTriangle, symbolWye

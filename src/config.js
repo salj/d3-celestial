@@ -12,6 +12,17 @@ function copyConfig(value) {
   return value;
 }
 
+// Merge nested style/label objects; arrays remain complete replacements.
+function mergeConfig(base, override) {
+  if (!base || base.constructor !== Object || !override || override.constructor !== Object) return override;
+  var result = Object.assign({}, base);
+  Object.keys(override).forEach(function(key) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") return;
+    result[key] = mergeConfig(base[key], override[key]);
+  });
+  return result;
+}
+
 // Central configuration object
 var globalConfig = {};
 
@@ -200,7 +211,7 @@ var settings = {
         res[prop] = {};
         for (key in config[prop]) {
           if (has(cfg[prop], key)) {
-            res[prop][key] = cfg[prop][key];
+            res[prop][key] = mergeConfig(config[prop][key], cfg[prop][key]);
           } else {
             res[prop][key] = config[prop][key];
           }            

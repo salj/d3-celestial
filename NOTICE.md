@@ -46,3 +46,15 @@ information in its archive. The outer layer was derived from Mourao's atlas;
 inner layers were traced from Mellinger's photomosaic. No explicit permission
 record was established by that discussion. Keep this distinction when deciding
 which data to distribute.
+
+### Outline inventory on this branch
+
+The only tracked Milky Way outline is [harness/data/mw.json](harness/data/mw.json).
+There is no retained `site/html/data/mw.json` or site distribution in this
+reconstruction. The npm `files` list excludes harness data. Browser examples
+and the visual harness still load the outline from the repository; generated
+comparison images under `docs/images/` can therefore contain rendered outlines,
+although that directory is ignored and no comparison PNGs are tracked.
+
+This inventory does not supply the missing permission evidence. No replacement
+data, upstream contact, or change to the outline itself is part of this work.

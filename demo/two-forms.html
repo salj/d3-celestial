@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>d3-celestial — two interactive maps with their own settings forms</title>
 <link rel="stylesheet" href="../celestial.css">
 <style>
@@ -9,6 +10,7 @@
   .fel { border: 1px solid #ddd; border-radius: 6px; padding: 10px; margin-bottom: 18px; }
   h2 { font-size: 14px; margin: 0 0 8px; }
   #statusEl { font: 12px monospace; white-space: pre-wrap; background: #f4f4f4; padding: 8px; }
+  #map-a, #map-b { max-width:492px; }
 </style>
 </head>
 <body>
@@ -27,7 +29,7 @@
 import { SkyMap } from "../build/celestial.mjs";
 
 const COMMON = {
-  width: 460, datapath: "../harness/data/",
+  width: 0, datapath: "../harness/data/",
   interactive: true, form: true, controls: true, location: false,
   follow: "center", disableAnimations: true, orientationfixed: false,
   date: new Date(Date.UTC(2026, 7, 26, 20, 0, 0)),

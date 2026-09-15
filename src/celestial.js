@@ -148,7 +148,10 @@ export class SkyMap {
   life.onDispose(function() {
     if (mountedMaps.get(host) === instance) mountedMaps.delete(host);
   });
-  if (parent) { 
+  if (parent) {
+    var ownedHostClass = !parent.classList.contains("celestial-map");
+    parent.classList.add("celestial-map");
+    life.onDispose(function() { if (ownedHostClass) host.classList.remove("celestial-map"); });
     parentElement = "#" + cfg.container;
     var st = window.getComputedStyle(parent, null);
     if (!parseInt(st.width) && !cfg.width) parent.style.width = px(parent.parentNode.clientWidth); 

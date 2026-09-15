@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>d3-celestial — full interface (D3 v7)</title>
 <link rel="stylesheet" href="../celestial.css">
-<style>body { font: 14px sans-serif; margin: 12px; } #log { font: 12px monospace; white-space: pre-wrap; background:#f4f4f4; padding:8px; margin-top:8px; }</style>
+<style>body { font: 14px sans-serif; margin: 12px; } #log { font: 12px monospace; white-space: pre-wrap; background:#f4f4f4; padding:8px; margin-top:8px; }#celestial-map { max-width:732px; }</style>
 </head>
 <body>
 <noscript>This page requires JavaScript.</noscript>
@@ -35,7 +36,7 @@ console.error = function () { window.__errors.push([].join.call(arguments, " "))
 
 Celestial.display({
   container: "celestial-map",
-  width: 700,
+  width: 0,
   projection: "airy",
   transform: "equatorial",
   // The minimal data set in the repo. The full one (43 MB) is upstream's; if you

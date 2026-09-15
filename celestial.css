@@ -1,8 +1,8 @@
 /* Copyright 2015-16 Olaf Frohn https://github.com/ofrohn, see LICENSE */
 
-#celestial-map { width: 100%; height: auto; margin: 0; padding: 0; display: inline-block; position: relative; min-width:720px; overflow: visible; }
-#celestial-map canvas { display: inline-block; position:relative; z-index:0; cursor:hand; cursor:grab; cursor:-moz-grab; cursor:-webkit-grab; }
-#celestial-map canvas:active { cursor:move; cursor: grabbing; cursor: -moz-grabbing; cursor: -webkit-grabbing; }
+:is(#celestial-map, .celestial-map) { width: 100%; height: auto; margin: 0; padding: 0; display: inline-block; position: relative; min-width:0; max-width:100%; overflow: visible; }
+:is(#celestial-map, .celestial-map) canvas { display: inline-block; position:relative; z-index:0; cursor:hand; cursor:grab; cursor:-moz-grab; cursor:-webkit-grab; }
+:is(#celestial-map, .celestial-map) canvas:active { cursor:move; cursor: grabbing; cursor: -moz-grabbing; cursor: -webkit-grabbing; }
 #d3-celestial-footer { text-align:center; color:#666; font:10pt/1 'Arial Unicode MS', Arial, Helvetica, sans-serif; }
 #d3-celestial-footer a { text-decoration:none; color:#99f; }
 
@@ -70,8 +70,8 @@ input[type="number"]::-webkit-outer-spin-button { height: auto; }
 
 /* Zoom controls */
 #celestial-zoomin, 
-#celestial-zoomout { width:32px; height:32px; left:8px; top:12px; background: rgba(255,255,255,0.5); border:1px solid #000; border-radius:3px; position:absolute; font: normal bold 24px/1 Consolas, Courier, 'Courier New', monospace; cursor:pointer; }
-#celestial-zoomout { top: 48px; }
+#celestial-zoomout { width:44px; height:44px; left:8px; top:12px; background: rgba(255,255,255,0.5); border:1px solid #000; border-radius:3px; position:absolute; font: normal bold 24px/1 Consolas, Courier, 'Courier New', monospace; cursor:pointer; }
+#celestial-zoomout { top: 60px; }
 #celestial-zoomin:hover, 
 #celestial-zoomout:hover { background: rgba(255,255,255,0.7); }
 #celestial-zoomin:disabled, 
@@ -98,6 +98,30 @@ input[type="number"]::-webkit-outer-spin-button { height: auto; }
 #celestial-date .selected { border:1px solid #000; border-radius:3px; }
 #celestial-date .today { background:#ff0; }
 
+
+/* Responsive intent from upstream PR #155, scoped to current map hosts. */
+@media (max-width: 768px) {
+  #celestial-form { display:block; width:100%; margin-top:10px; }
+  #celestial-form .col { white-space:normal; box-sizing:border-box; max-width:100%; line-height:1.6; }
+  #celestial-form select { max-width:100%; }
+  #celestial-form #datetime { width:calc(100% - 70px); max-width:194px; }
+  #celestial-form input[type='button'], #celestial-form select { min-height:32px; }
+  #celestial-form input#download-png, #celestial-form input#download-svg { height:32px; }
+  #celestial-form #datepick { vertical-align:middle; top:0; }
+  #celestial-date { z-index:1; }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  :is(#celestial-map, .celestial-map) canvas { cursor:default; }
+  #celestial-form input[type='checkbox'] { width:20px; height:20px; }
+  #celestial-form input[type='button'], #celestial-form select { min-height:44px; }
+  #celestial-form #datepick { min-height:44px; }
+  #celestial-form #day-left, #celestial-form #day-right { min-width:24px; }
+  #celestial-date { width:280px; max-width:calc(100vw - 24px); }
+  #celestial-date #cal { display:grid; grid-template-columns:repeat(7, 1fr); width:auto; }
+  #celestial-date .date { box-sizing:border-box; width:100%; height:36px; padding:8px 2px; }
+  #celestial-date #left, #celestial-date #right { width:24px; height:44px; }
+}
 
 @media print {
   #celestial-zoomin, #celestial-zoomout, #celestial-form { display: none; }

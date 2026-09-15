@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>d3-celestial — as an ES module</title>
 <link rel="stylesheet" href="../celestial.css">
-<style>body { font: 14px sans-serif; margin: 16px } code { background:#f2f2f2; padding:1px 4px; border-radius:3px }</style>
+<style>body { font: 14px sans-serif; margin: 16px } code { background:#f2f2f2; padding:1px 4px; border-radius:3px }#celestial-map { max-width:732px; }</style>
 </head>
 <body>
 <h1>As an ES module</h1>
@@ -23,7 +24,7 @@ import Celestial from "../build/celestial.mjs";
 
 Celestial.display({
   container: "celestial-map",
-  width: 700,
+  width: 0,
   projection: "aitoff",
   datapath: "../harness/data/",
   interactive: false,

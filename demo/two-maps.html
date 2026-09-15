@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>d3-celestial — two independent maps</title>
+<link rel="stylesheet" href="../celestial.css">
 <style>
   body { font: 14px sans-serif; margin: 16px; }
   .row { display: flex; gap: 24px; flex-wrap: wrap; }
-  .box { border: 1px solid #ddd; padding: 8px; border-radius: 6px; }
+  .box { width:min(520px, 100%); box-sizing:border-box; border: 1px solid #ddd; padding: 8px; border-radius: 6px; }
   h2 { font-size: 14px; margin: 0 0 6px; font-weight: 600; }
   #statusEl { margin-top: 12px; font: 12px monospace; white-space: pre-wrap; background: #f4f4f4; padding: 8px; }
 </style>
@@ -27,7 +29,7 @@
 import { SkyMap } from "../build/celestial.mjs";
 
 const COMMON = {
-  width: 470,
+  width: 0,
   datapath: "../harness/data/",
   interactive: false, form: false, controls: false, location: false,
   follow: "center", disableAnimations: true, orientationfixed: false,

@@ -184,7 +184,7 @@ var datetimepicker = function(sky, callback) {
   this.show = function(dt, tz) {
     var nd = $form("celestial-date"),
         src = $form("datepick"),
-        left = src.offsetLeft + src.offsetWidth - nd.offsetWidth,
+        left = Math.max(0, src.offsetLeft + src.offsetWidth - nd.offsetWidth),
         top = src.offsetTop - nd.offsetHeight - 1;
   
     if (!this.isVisible()) {

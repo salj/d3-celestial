@@ -32,6 +32,17 @@ test("late network completion cannot call a disposed map", async t => {
   assert.equal(called, false);
 });
 
+test("binary loads yield Uint8Array through lifecycle callback", async t => {
+  t.mock.method(globalThis, "fetch", (_url, options) => {
+    return Promise.resolve({ok: true, arrayBuffer: async () => Uint8Array.of(7, 8, 9).buffer});
+  });
+  const life = createLifecycle();
+  let received;
+  await life.loadBytes("/catalogue.celd", (error, bytes) => { assert.equal(error, null); received = bytes; });
+  assert.deepEqual([...received], [7, 8, 9]);
+  life.dispose();
+});
+
 test("nested configuration does not alias defaults or another instance", () => {
   const a = settings.set({}, settings), b = settings.set({}, settings);
   a.stars.style.fill = "#123456";

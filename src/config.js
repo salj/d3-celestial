@@ -63,6 +63,7 @@ var settings = {
   culture: "",        // Constellation lines, default "iau"
   container: "celestial-map",   // ID of parent element, e.g. div
   datapath: "data/",  // Path/URL to data files, empty = subfolder 'data'
+  catalogue: null, // null = JSON assets; {format:"celd", url:"..."} opts into CELD
   stars: {
     show: true,    // Show stars
     limit: 6,      // Show only stars brighter than limit magnitude
@@ -241,6 +242,12 @@ var settings = {
     if (!res.center || res.center.length <= 0) res.center = [0,0,0];
     res.datapath = res.datapath || "";
     res.datapath = res.datapath.replace(/([^\/]$)/, "$1\/");
+    if (res.catalogue !== null) {
+      if (!res.catalogue || res.catalogue.constructor !== Object ||
+          res.catalogue.format !== "celd" || typeof res.catalogue.url !== "string" || !res.catalogue.url)
+        throw new TypeError("catalogue must be null or {format: 'celd', url: string}");
+      res.catalogue = {format: "celd", url: res.catalogue.url};
+    }
     if (!res.transform || res.transform === "") res.transform = "equatorial";
     // If no recognized language/culture settings, assume defaults
     //if (!res.lang || res.lang.search(/^de|es$/) === -1) res.lang = "name";

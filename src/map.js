@@ -1,0 +1,1321 @@
+import { interpolateCenter } from "./interpolate.js";
+import { createLifecycle } from "./lifecycle.js";
+import * as d3 from "./d3.js";
+import { geoZoom } from "../lib/geo-zoom.js";
+import { hasCallback } from "./add.js";
+import { Canvas } from "./canvas.js";
+import { catalogueRequirements, materialiseCatalogue } from "./catalogue-adapter.js";
+import { arrayfy, bvcolor, clonePlain, formats, projections, settings } from "./config.js";
+import { getConstellationList, getData, getGridValues, getMwbackground, getPlanet, getPlanets, reversedFeature } from "./get.js";
+import { headlessUi } from "./headless-ui.js";
+import { Celestial } from "./core.js";
+import { poles, projectionTween } from "./projection.js";
+import { euler, getAngles, halfπ, transformDeg } from "./transform.js";
+import { Round, has, interpolateAngle, isArray, isNumber, px } from "./util.js";
+
+var ANIMDISTANCE = 0.035,  // Rotation animation threshold, ~2deg in radians
+    ANIMSCALE = 1.4,       // Zoom animation threshold, scale factor
+    ANIMINTERVAL_R = 2000, // Rotation duration scale in ms
+    ANIMINTERVAL_P = 2500, // Projection duration in ms
+    ANIMINTERVAL_Z = 1500; // Projection duration in ms
+
+// The most recently created map.
+//
+// Kept only for the few places that still need a "current" map. Drawing itself
+// runs entirely on per-instance state, which is what allows several independent
+// maps on one page (upstream #96, #131).
+export var current = null;
+const mountedMaps = new WeakMap();
+let nextMapId = 0;
+
+// One sky-map instance.
+//
+// The body is unchanged from the original `Celestial.display`: that was already
+// written as a constructor (it ends with `this.clip = ...`, `this.rotate = ...`),
+// only it was called as `Celestial.display(...)` — so `this` was the global
+// object itself. That is what limited a page to one map (upstream #96, #131).
+// As a class the interface is the same, but every call gets its own `this`.
+export class CoreSkyMap {
+  // config: the usual settings object.
+  // options.standalone: when true the map is built ONLY from the defaults and
+  //   the config passed in, not from the accumulated global settings — this is
+  //   what several independent maps need. Without it the original behaviour
+  //   stands.
+  constructor(config, options) {
+  var animationID,
+      container = null,
+      animations = [], 
+      animationIndex = 0, 
+      repeat = false,
+      zoomextent = 10,       // Default maximum extent of zoom (max/min)
+      zoomlevel = 1;         // Default zoom level, 1 = 100%
+
+  // Per-instance state. These used to be module-level variables, which is why
+  // every map on a page shared them.
+  var cfg, mapProjection, parentElement, zoom, map, circle, daylight,
+      starnames = {}, dsonames = {};
+
+  var base = (options && options.standalone) ? settings : undefined,
+      ui = (options && options.ui) || headlessUi;
+  this.standalone = !!base;
+
+  // The variables below are REASSIGNED during drawing (cfg = cfg.set(...),
+  // mapProjection = projectionTween(…), container = …append("container")).
+  // With a plain assignment the instance would keep the stale value — for
+  // example Celestial.mapProjection would be out of date after a projection
+  // change. A getter always exposes the animationIndex internal state.
+  var instance = this;
+  var life = createLifecycle(), loadGeneration = 0;
+  var namespace = ".celestial-" + (++nextMapId);
+  var transitionNodes = [{}, {}, {}];
+  var legacyLayers = !!(options && options.compatibility);
+  Object.defineProperty(this, "_lifecycle", { value: life, configurable: true });
+  Object.defineProperty(this, "_legacyLayers", { value: legacyLayers, configurable: true });
+  this.destroy = function() { life.dispose(); };
+  function loadData(url, callback) {
+    var generation = loadGeneration;
+    return life.load(url, function(error, json) {
+      if (generation === loadGeneration) callback(error, json);
+    });
+  }
+  function loadBytes(url, callback) {
+    var generation = loadGeneration;
+    return life.loadBytes(url, function(error, bytes) {
+      if (generation === loadGeneration) callback(error, bytes);
+    });
+  }
+  life.onDispose(function() {
+    transitionNodes.forEach(function(node) { d3.select(node).interrupt(); });
+    d3.select(window).on(namespace, null);
+    if (current === instance) current = null;
+  });
+
+  // Layers added with Celestial.add() draw through the GLOBAL Celestial object
+  // (Celestial.container, .context, .mapProjection …) — that is how upstream's
+  // examples are written, and the interface upstream had from the start, because
+  // there `this` inside display() WAS the global object.
+  //
+  // Here the global only receives that interface once display() has copied it
+  // off the finished instance. A redraw that runs while this constructor is
+  // still executing — the zoom behaviour triggers one — would therefore call
+  // user layers against a global whose container is still null. So they stay
+  // switched off until the constructor is done; display() draws them right
+  // after it has published the interface.
+  var layersEnabled = false;
+
+  // Element lookup inside this map's own parent element. This used to live in
+  // util.js, reached through a shared "current map" pointer — so two maps would
+  // have found each other's elements.
+  function $(id) { return document.querySelector(parentElement + " #" + id); }
+  ["cfg", "mapProjection", "container", "map", "parentElement", "starnames", "dsonames"]
+    .forEach(function (name_) {
+      Object.defineProperty(instance, name_, {
+        get: function () {
+          switch (name_) {
+            case "cfg": return cfg;
+            case "mapProjection": return mapProjection;
+            case "container": return container;
+            case "map": return map;
+            case "parentElement": return parentElement;
+            case "starnames": return starnames;
+            default: return dsonames;
+          }
+        },
+        enumerable: true, configurable: true
+      });
+    });
+
+  current = this;
+
+
+
+  //Mash config with default settings, todo: if globalConfig exists, make another one
+  cfg = settings.set(config, base);
+  if (base) cfg = clonePlain(cfg);
+  cfg = cfg.applyDefaults(config, base);
+  if (isNumber(cfg.zoomextend)) zoomextent = cfg.zoomextend;
+  if (isNumber(cfg.zoomlevel)) zoomlevel = Math.max(1, Math.min(zoomextent, +cfg.zoomlevel));
+  //if (cfg.disableAnimations) ANIMDISTANCE = Infinity;
+
+  var parent = document.getElementById(cfg.container);
+  var host = parent || document.body;
+  var previous = mountedMaps.get(host);
+  if (previous) previous.destroy();
+  mountedMaps.set(host, instance);
+  life.onDispose(function() {
+    if (mountedMaps.get(host) === instance) mountedMaps.delete(host);
+  });
+  if (parent) {
+    var ownedHostClass = !parent.classList.contains("celestial-map");
+    parent.classList.add("celestial-map");
+    life.onDispose(function() { if (ownedHostClass) host.classList.remove("celestial-map"); });
+    parentElement = "#" + cfg.container;
+    var st = window.getComputedStyle(parent, null);
+    if (!parseInt(st.width) && !cfg.width) parent.style.width = px(parent.parentNode.clientWidth); 
+  } else { 
+    parentElement = "body"; 
+    parent = null; 
+  }
+   
+  var margin = [16, 16],
+      width = getWidth(),
+      canvaswidth = isNumber(cfg.background.width) ? width + cfg.background.width : width,
+      pixelRatio = window.devicePixelRatio || 1,
+      projectionSetting = getProjection(cfg.projection, cfg.projectionRatio);
+
+  if (!projectionSetting) { life.dispose(); return; }
+
+  if (cfg.lines.graticule.lat && cfg.lines.graticule.lat.pos[0] === "outline") projectionSetting.scale -= 2;
+        
+  var ratio = projectionSetting.ratio,
+      height = Math.round(width / ratio),
+      canvasheight = Math.round(canvaswidth / ratio),
+      scale = projectionSetting.scale * width/1024,
+      starbase = cfg.stars.size, 
+      dsobase = cfg.dsos.size || starbase,
+      starexp = cfg.stars.exponent,
+      dsoexp = cfg.dsos.exponent || starexp, //Object size base & exponent
+      adapt = 1,
+      rotation = getAngles(cfg.center),
+      path = cfg.datapath;
+     
+  if (parentElement !== "body") parent.style.height = px(canvasheight);
+  
+  // This map's own settings-form interface. One per instance, so that two
+  // interactive maps on a page do not write each other's fields.
+  //
+  // It has to exist this early: setting up the zoom (below) immediately triggers
+  // a redraw(), which calls formApi.setCenter(). The field lookups themselves
+  // are guarded against a missing form, but the object must be there.
+  var formApi = ui.form(this);
+  this.form = formApi;
+
+  mapProjection = Celestial.projection(cfg.projection).rotate(rotation).translate([canvaswidth/2, canvasheight/2]).scale(scale * zoomlevel);
+    
+  zoom = geoZoom().projection(mapProjection).center([canvaswidth/2, canvasheight/2]).scaleExtent([scale, scale * zoomextent]).on("zoom.redraw", redraw);
+  // scale remains the unzoomed reference for symbol adaptation.
+
+  var canvas = d3.select(parentElement).selectAll("canvas"),
+      culture = (cfg.culture !== "" && cfg.culture !== "iau") ? cfg.culture : "";
+  
+  var ownedCanvas = canvas.empty();
+  if (ownedCanvas) canvas = d3.select(parentElement).append("canvas");
+  //canvas.attr("width", width).attr("height", height);
+  canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height", canvasheight * pixelRatio);
+  var context = canvas.node().getContext("2d");  
+  context.setTransform(pixelRatio,0,0,pixelRatio,0,0);
+
+  var graticule = d3.geoGraticule().stepMinor([15,10]);
+  
+  map = d3.geoPath().projection(mapProjection).context(context);
+   
+  //parent div with id #celestial-map or body
+  // Look for the container inside THIS map's parent. It used to take over the
+  // global Celestial.container, so a second map would have drawn into the
+  // rajzolt volna (#96, #131).
+  container = d3.select(parentElement).select("container");
+  if (container.empty()) container = d3.select(parentElement).append("container");
+  else container.selectAll(parentElement + " *").remove();
+
+  life.onDispose(function() {
+    canvas.on(".zoom", null).interrupt();
+    d3.select(host).on(namespace, null);
+    if (ownedCanvas) canvas.remove();
+    container.remove();
+    d3.select(host).selectAll("#celestial-zoomin, #celestial-zoomout").remove();
+  });
+  if (cfg.interactive) {
+    canvas.call(zoom);
+    d3.select(parentElement).on('dblclick' + namespace, function () { zoomBy(1.5625); return false; });
+  } else {
+    canvas.style("cursor", "default", "important");
+  }
+
+  setClip(projectionSetting.clip);
+
+  // In v7 the listener's first argument is the event object; in v3 it was the
+  // datum (undefined here). Passed straight through, the "nothing changed, do
+  // nothing" guard in resize(set) would never fire, and every resize event
+  // would reset the user's zoom level.
+  d3.select(window).on('resize' + namespace, function () { resize(); });
+
+  if (cfg.interactive === true && cfg.controls === true && $("celestial-zoomin") === null) {
+    d3.select(parentElement).append("input").attr("type", "button").attr("id", "celestial-zoomin").attr("value", "\u002b").on("click", function () { zoomBy(1.25); return false; });
+    d3.select(parentElement).append("input").attr("type", "button").attr("id", "celestial-zoomout").attr("value", "\u2212").on("click", function () { zoomBy(0.8); return false; });
+  }
+  
+  circle = d3.geoCircle().radius(90);  
+  daylight = d3.geoCircle().radius(179.9);
+
+  
+  if ($("loc") === null) ui.observer(this);
+  if ((cfg.location || cfg.formFields.location) && cfg.follow === "zenith" && instance.zenith) {
+    cfg.center = instance.zenith().slice();
+    mapProjection.rotate(getAngles(cfg.center));
+  }
+
+  if (cfg.location === true || cfg.formFields.location === true) {
+    d3.select(parentElement + " #location").style("display", "inline-block");
+    formApi.fldEnable("horizon-show", projectionSetting.clip);
+    formApi.fldEnable("daylight-show", !projectionSetting.clip);
+  }
+
+  function catalogueError(error) {
+    console.error("Celestial catalogue:", error);
+  }
+
+  function useCeld(data) {
+    if (data.milkyWay) {
+      var mw = getData(data.milkyWay, cfg.transform);
+      var mw_back = getMwbackground(mw);
+      container.selectAll(parentElement + " .mway")
+        .data(mw.features)
+        .enter().append("path")
+        .attr("class", "mw");
+      container.selectAll(parentElement + " .mwaybg")
+        .data(mw_back.features)
+        .enter().append("path")
+        .attr("class", "mwbg");
+    }
+    if (data.constellationLabels) {
+      var con = getData(data.constellationLabels, cfg.transform);
+      container.selectAll(parentElement + " .constnames").data(con.features).enter()
+        .append("text").attr("class", "constname");
+      instance.constellations = getConstellationList(con);
+    }
+    if (data.constellationLines) {
+      var conl = getData(data.constellationLines, cfg.transform);
+      container.selectAll(parentElement + " .lines").data(conl.features).enter()
+        .append("path").attr("class", "constline");
+      formApi.listConstellations();
+    }
+    if (data.stars) {
+      var st = getData(data.stars, cfg.transform);
+      container.selectAll(parentElement + " .stars").data(st.features).enter()
+        .append("path").attr("class", "star");
+    }
+    if (data.starLabels) Object.assign(starnames, data.starLabels);
+    if (data.dsos) {
+      var ds = getData(data.dsos, cfg.transform);
+      container.selectAll(parentElement + " .dsos").data(ds.features).enter()
+        .append("path").attr("class", "dso");
+    }
+    if (data.dsoNames) Object.assign(dsonames, data.dsoNames);
+    if (data.planets) {
+      var pl = getPlanets(data.planets, instance);
+      container.selectAll(parentElement + " .planets").data(pl).enter()
+        .append("path").attr("class", "planet");
+    }
+    redraw();
+  }
+
+  function loadCeld() {
+    var required;
+    try { required = catalogueRequirements(cfg); }
+    catch (error) { catalogueError(error); return; }
+    if (!Object.values(required).some(Boolean)) return;
+    loadBytes(cfg.catalogue.url, function(error, bytes) {
+      if (error) { catalogueError(error); return; }
+      try { useCeld(materialiseCatalogue(bytes, required)); }
+      catch (decodeError) { catalogueError(decodeError); }
+    });
+  }
+
+  function load() {
+    if (life.disposed) return;
+    loadGeneration++;
+    gridKey = null;
+    //Background
+    setClip(projectionSetting.clip);
+    container.append("path").datum(graticule.outline).attr("class", "outline"); 
+    container.append("path").datum(circle).attr("class", "horizon");
+    container.append("path").datum(daylight).attr("class", "daylight");
+    //Celestial planes
+    if (cfg.transform === "equatorial") graticule.stepMinor([15,10]);
+    else  graticule.stepMinor([10,10]);
+    for (var key in cfg.lines) {
+      if (!has(cfg.lines, key)) continue;
+      if (key === "graticule") {
+        container.append("path").datum(graticule).attr("class", "graticule"); 
+      } else {
+        container.append("path")
+          .datum(d3.geoCircle().radius(90).center(transformDeg(poles[key], euler[cfg.transform])) )
+          .attr("class", key);
+      }
+    }
+
+    if (cfg.catalogue) {
+      loadCeld();
+    } else {
+    //Milky way outline
+    if (cfg.mw.show) {
+    loadData(path + "mw.json", function(error, json) {
+      if (error) { 
+        window.alert("Data file could not be loaded or doesn't exist. See readme.md");
+        return console.warn(error);  
+      }
+
+      var mw = getData(json, cfg.transform);
+      var mw_back = getMwbackground(mw);
+
+      container.selectAll(parentElement + " .mway")
+         .data(mw.features)
+         .enter().append("path")
+         .attr("class", "mw");
+      container.selectAll(parentElement + " .mwaybg")
+         .data(mw_back.features)
+         .enter().append("path")
+         .attr("class", "mwbg");
+      redraw();
+    }); 
+    }
+
+    //Constellation names or designation
+    if (cfg.constellations.names) {
+    loadData(path + filename("constellations"), function(error, json) {
+      if (error) return console.warn(error);
+      
+      var con = getData(json, cfg.transform);
+      container.selectAll(parentElement + " .constnames")
+         .data(con.features)
+         .enter().append("text")
+         .attr("class", "constname");
+         
+      instance.constellations = getConstellationList(con);
+      redraw();
+    });
+    }
+
+    //Constellation boundaries
+    if (cfg.constellations.bounds) {
+    loadData(path + filename("constellations", "borders"), function(error, json) {
+      if (error) return console.warn(error);
+      
+      //var cb = getData(topojson.feature(json, json.objects.constellations_bounds), cfg.transform);
+      var cb = getData(json, cfg.transform);
+      
+      container.selectAll(parentElement + " .bounds")
+         .data(cb.features)
+         .enter().append("path")
+         .attr("class", "boundaryline");
+      redraw();
+    });
+    }
+
+    //Constellation lines
+    if (cfg.constellations.lines) {
+    loadData(path + filename("constellations", "lines"), function(error, json) {
+      if (error) return console.warn(error);
+
+      var conl = getData(json, cfg.transform);
+
+      container.selectAll(parentElement + " .lines")
+         .data(conl.features)
+         .enter().append("path")
+         .attr("class", "constline");
+
+      formApi.listConstellations();
+      redraw();
+    });
+    }
+    
+    //Stars
+    if (cfg.stars.show) {
+    loadData(path + cfg.stars.data, function(error, json) {
+      if (error) return console.warn(error);
+
+      var st = getData(json, cfg.transform);
+
+      container.selectAll(parentElement + " .stars")
+         .data(st.features)
+         .enter().append("path")
+         .attr("class", "star");
+      redraw();
+
+    });
+    }
+
+    //Star names
+    if (cfg.stars.show && (cfg.stars.designation || cfg.stars.propername)) {
+    loadData(path + filename("starnames"), function(error, json) {
+      if (error) return console.warn(error);
+      Object.assign(starnames, json);
+      redraw();
+    });
+    }
+
+    //Deep space objects
+    if (cfg.dsos.show) {
+    loadData(path + cfg.dsos.data, function(error, json) {
+      if (error) return console.warn(error);
+      
+      var ds = getData(json, cfg.transform);
+
+      container.selectAll(parentElement + " .dsos")
+         .data(ds.features)
+         .enter().append("path")
+         .attr("class", "dso" );
+      redraw();
+    });
+    }
+
+    //DSO names
+    if (cfg.dsos.show && cfg.dsos.names) {
+    loadData(path + filename("dsonames"), function(error, json) {
+      if (error) return console.warn(error);
+      Object.assign(dsonames, json);
+      redraw();
+    });
+    }
+
+    //Planets, Sun & Moon
+    if (cfg.planets.show) {
+    loadData(path + filename("planets"), function(error, json) {
+      if (error) return console.warn(error);
+      
+      var pl = getPlanets(json, instance);
+
+      container.selectAll(parentElement + " .planets")
+         .data(pl)
+         .enter().append("path")
+         .attr("class", "planet");
+      redraw();
+    });
+    }
+    }
+
+    if (legacyLayers && Celestial.data.length > 0) { 
+      Celestial.data.forEach( function(d) {
+        if (has(d, "file")) loadData(d.file, d.callback);
+        else life.schedule(d.callback, 0);
+      }, this);
+    }
+  
+    if (cfg.lang && cfg.lang != "") apply(instance.setLanguage(cfg.lang));
+    //redraw();
+  }
+  
+  // Zoom by factor; >1 larger <1 smaller 
+  function zoomBy(factor) {
+    if (life.disposed) return;
+    if (!factor || factor === 1) return;
+    var sc0 = mapProjection.scale(),
+        sc1 = sc0 * factor,
+        ext = zoom.scaleExtent(),
+        interval = ANIMINTERVAL_Z * Math.sqrt(Math.abs(1-factor));
+        
+    if (sc1 < ext[0]) sc1 = ext[0];
+    if (sc1 > ext[1]) sc1 = ext[1];
+    if (cfg.disableAnimations === true) { 
+      mapProjection.scale(sc1); 
+      zoom.scale(sc1); 
+      redraw(); 
+      return 0; 
+    }
+    var zTween = d3.interpolateNumber(sc0, sc1);
+    d3.select(transitionNodes[0]).transition().duration(interval).tween("scale", function () {
+        return function(t) {
+          var z = zTween(t);
+          mapProjection.scale(z); 
+          redraw(); 
+        };
+    }).transition().duration(0).tween("scale", function () {
+      zoom.scale(sc1); 
+      redraw(); 
+    });
+    return interval;
+  }  
+  
+  function apply(config) {
+    if (life.disposed) return;
+    cfg = settings.set(config, cfg);
+    if (current === instance) settings.set(cfg); 
+    redraw();
+  }
+
+
+  function rotate(config) {
+    if (life.disposed) return;
+    var cFrom = cfg.center, 
+        rot = mapProjection.rotate(),
+        sc = mapProjection.scale(),
+        interval = ANIMINTERVAL_R,
+        keep = false, 
+        cTween, zTween, oTween,
+        oof = cfg.orientationfixed;
+    
+    if (Round(rot[1], 1) === -Round(config.center[1], 1)) keep = true; //keep lat fixed if equal
+    cfg = settings.set(config, cfg);
+    var d = Round(d3.geoDistance(cFrom, cfg.center), 2);
+    var o = d3.geoDistance([cFrom[2],0], [cfg.center[2],0]);
+    if ((d < ANIMDISTANCE && o < ANIMDISTANCE) || cfg.disableAnimations === true) { 
+      rotation = getAngles(cfg.center);
+      mapProjection.rotate(rotation);
+      redraw();
+      return 0; 
+    } 
+    // Zoom interpolator
+    if (sc > scale * ANIMSCALE) zTween = d3.interpolateNumber(sc, scale);
+    else zTween = function () { return sc; };
+    // Orientation interpolator
+    if (o === 0) oTween = function () { return rot[2]; };
+    else oTween = interpolateAngle(cFrom[2], cfg.center[2]);
+    cfg.orientationfixed = false;  
+    // Rotation interpolator
+    if (d === 0) cTween = function () { return cfg.center; };
+    else cTween = interpolateCenter(cFrom, cfg.center);
+    interval = (d !== 0) ? interval * d : interval * o; // duration scaled by ang. distance
+    d3.select(transitionNodes[1]).transition().duration(interval).tween("center", function () {
+      return function(t) {
+        var c = getAngles(cTween(t));
+        c[2] = oTween(t);
+        var z = t < 0.5 ? zTween(t) : zTween(1-t);
+        if (keep) c[1] = rot[1]; 
+        mapProjection.scale(z);
+        mapProjection.rotate(c);
+        redraw();
+      };
+    }).transition().duration(0).tween("center", function () {
+      cfg.orientationfixed = oof;
+      rotation = getAngles(cfg.center);
+      mapProjection.rotate(rotation);
+      redraw();
+    });
+    return interval;
+  }
+  
+  function resize(set) {
+    if (life.disposed) return;
+    var nextWidth = getWidth();
+    var nextPixelRatio = window.devicePixelRatio || 1;
+    if (nextWidth === width && nextPixelRatio === pixelRatio && !set) return;
+    zoomlevel = mapProjection.scale() / scale;
+    width = nextWidth;
+    pixelRatio = nextPixelRatio;
+    height = width/ratio;
+    canvaswidth = isNumber(cfg.background.width) ? width + cfg.background.width : width;
+    canvasheight = Math.round(canvaswidth / ratio);
+
+    scale = projectionSetting.scale * width/1024;
+    //canvas.attr("width", width).attr("height", height);
+    canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height", canvasheight * pixelRatio);
+    zoom.scaleExtent([scale, scale * zoomextent]).scale(scale * zoomlevel);
+    mapProjection.translate([canvaswidth/2, canvasheight/2]).scale(scale * zoomlevel);
+    if (parent) parent.style.height = px(height);
+    redraw();
+  }
+
+  function reproject(config) {
+    if (life.disposed) return;
+    var prj = getProjection(config.projection, config.projectionRatio);
+    if (!prj) return;
+    zoomlevel = mapProjection.scale() / scale;
+    
+    var rot = mapProjection.rotate(), ctr = mapProjection.center(), sc = mapProjection.scale(), ext = zoom.scaleExtent(), clip = [],
+        prjFrom = Celestial.projection(cfg.projection).center(ctr).translate([canvaswidth/2, canvasheight/2]).scale(sc),
+        interval = ANIMINTERVAL_P, 
+        delay = 0, clipTween = null,
+        rTween = d3.interpolateNumber(ratio, prj.ratio);
+
+    if (projectionSetting.clip != prj.clip || cfg.disableAnimations === true) {
+      interval = 0; // Different clip = no transition
+    }
+    /*if (projectionSetting.clip !== prj.clip) {
+      clipTween = d3.interpolateNumber(projectionSetting.clip ? 90 : 180, prj.clip ? 90 : 180); // Clipangle from - to
+    } else*/ setClip(prj.clip);
+    
+    var prjTo = Celestial.projection(config.projection).center(ctr).translate([canvaswidth/2, canvaswidth/prj.ratio/2]).scale(prj.scale * width/1024 * zoomlevel);
+    var bAdapt = cfg.adaptable;
+
+    if (cfg.location || cfg.formFields.location) { 
+      formApi.fldEnable("horizon-show", prj.clip);
+      formApi.fldEnable("daylight-show", !prj.clip);
+    }
+    
+    mapProjection = projectionTween(prjFrom, prjTo);
+    cfg.adaptable = false;
+
+    d3.select(transitionNodes[2]).transition().duration(interval).tween("projection", function () {
+      return function(_) {
+        mapProjection.alpha(_).rotate(rot);
+        map.projection(mapProjection);
+        /*if (clipTween) mapProjection.clipAngle(clipTween(_));
+        else*/setClip(prj.clip);
+        ratio = rTween(_);
+        height = width/ratio;
+        canvasheight = Math.round(canvaswidth / ratio);
+        //canvas.attr("width", width).attr("height", height);
+        canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height",  canvasheight * pixelRatio);
+        if (parent) parent.style.height = px(canvasheight);
+        redraw();
+      };
+    }).transition().duration(0).tween("projection", function () {
+      projectionSetting = prj;
+      ratio = projectionSetting.ratio;
+      height = width / projectionSetting.ratio;
+      canvasheight = Math.round(canvaswidth / ratio);
+      scale = projectionSetting.scale * width/1024;
+      //canvas.attr("width", width).attr("height", height);
+      canvas.style("width", px(canvaswidth)).style("height", px(canvasheight)).attr("width", canvaswidth * pixelRatio).attr("height", canvasheight * pixelRatio);
+      if (parent) parent.style.height = px(canvasheight);
+      cfg.projection = config.projection;
+      mapProjection = Celestial.projection(config.projection).rotate(rot).translate([canvaswidth/2, canvasheight/2]).scale(scale * zoomlevel);
+      map.projection(mapProjection);
+      setClip(projectionSetting.clip); 
+      zoom.projection(mapProjection).scaleExtent([scale, scale * zoomextent]).scale(scale * zoomlevel);
+      cfg.adaptable = bAdapt;
+        redraw();
+    });
+    return interval;
+  }
+
+  
+  var gridKey;
+  function updateGridLabels() {
+    var grid = cfg.lines.graticule;
+    var lon = grid.lon ? grid.lon.pos : [];
+    var lat = grid.lat ? grid.lat.pos : [];
+    var relative = lon.concat(lat).some(function(p) { return p === "center" || p === "outline"; });
+    var key = JSON.stringify([cfg.transform, lon, lat, relative ? cfg.center : null]);
+    if (key === gridKey) return;
+    gridKey = key;
+    ["lon", "lat"].forEach(function(type) {
+      container.selectAll(".graticule_" + type)
+        .data(getGridValues(type, grid[type] ? grid[type].pos : [], instance))
+        .join("path").attr("class", "graticule_" + type);
+    });
+  }
+
+  function redraw() {
+    if (life.disposed) return;  
+    var rot = mapProjection.rotate();
+    
+    context.setTransform(pixelRatio,0,0,pixelRatio,0,0);
+    if (cfg.adaptable) adapt = Math.sqrt(mapProjection.scale()/scale);
+    if (!adapt) adapt = 1;
+    starbase = cfg.stars.size;
+    starexp = cfg.stars.exponent;
+    dsobase = cfg.dsos.size || starbase;
+    dsoexp = cfg.dsos.exponent;
+    
+    if (cfg.orientationfixed && cfg.center.length > 2) {
+      rot[2] = cfg.center[2]; 
+      mapProjection.rotate(rot);
+    }
+    cfg.center = [-rot[0], -rot[1], rot[2]];
+    
+    formApi.setCenter(cfg.center, cfg.transform);
+    updateGridLabels();
+    clear();
+    
+    drawOutline();
+    context.save();
+    clipOutline();
+    
+    //Draw all types of objects on the canvas
+    if (cfg.mw.show) { 
+      container.selectAll(parentElement + " .mw").each(function(d) {
+        setStyle(cfg.mw.style); map(d);
+        if (wrongWinding(false)) { setStyle(cfg.mw.style); map(reversed(d)); }
+        context.fill();
+      });
+      // paint mw-outside in background color
+      if (cfg.transform !== "supergalactic" && cfg.background.opacity > 0.95)
+        container.selectAll(parentElement + " .mwbg").each(function(d) {
+          setStyle(cfg.background); map(d);
+          if (wrongWinding(true)) { setStyle(cfg.background); map(reversed(d)); }
+          context.fill();
+        });
+    }
+    
+    for (var key in cfg.lines) {
+      if (!has(cfg.lines, key)) continue;
+      if (cfg.lines[key].show !== true) continue;
+      setStyle(cfg.lines[key]);
+      container.selectAll(parentElement + " ." + key).attr("d", map);  
+      context.stroke(); 
+    }
+
+    if (has(cfg.lines.graticule, "lon")) {
+      setTextStyle(cfg.lines.graticule.lon);
+      container.selectAll(parentElement + " .graticule_lon").each(function(d, i) { 
+        if (clip(d.geometry.coordinates)) {
+          var pt = mapProjection(d.geometry.coordinates);
+          gridOrientation(pt, d.properties.orientation);
+          context.fillText(d.properties.value, pt[0], pt[1]); 
+        }
+      });
+    }
+    
+    if (has(cfg.lines.graticule, "lat")) {
+      setTextStyle(cfg.lines.graticule.lat);
+      container.selectAll(parentElement + " .graticule_lat").each(function(d, i) { 
+        if (clip(d.geometry.coordinates)) {
+          var pt = mapProjection(d.geometry.coordinates);
+          gridOrientation(pt, d.properties.orientation);
+          context.fillText(d.properties.value, pt[0], pt[1]); 
+        }
+      });
+    }
+    
+    if (cfg.constellations.bounds) { 
+      container.selectAll(parentElement + " .boundaryline").each(function(d) { 
+        setStyle(cfg.constellations.boundStyle); 
+        if (instance.constellation) {
+          var re = new RegExp("\\b" + instance.constellation + "\\b");
+          if (d.ids.search(re) !== -1) {
+            context.lineWidth *= 1.5;
+            context.globalAlpha = 1;
+            context.setLineDash([]);
+          }
+        }
+        map(d); 
+        context.stroke(); 
+      });
+      context.setLineDash([]);
+    }
+
+    if (cfg.constellations.lines) { 
+      container.selectAll(parentElement + " .constline").each(function(d) { 
+        setStyleA(d.properties.rank, cfg.constellations.lineStyle); 
+        map(d); 
+        context.stroke(); 
+      });
+    }
+    
+    context.restore();
+    drawOutline(true);
+    context.save();
+    clipOutline();
+
+    if (cfg.constellations.names) { 
+      //setTextStyle(cfg.constellations.nameStyle);
+      container.selectAll(parentElement + " .constname").each( function(d) { 
+        if (clip(d.geometry.coordinates)) {
+          setStyleA(d.properties.rank, cfg.constellations.nameStyle);
+          var pt = mapProjection(d.geometry.coordinates);
+          context.fillText(constName(d), pt[0], pt[1]); 
+        }
+      });
+    }
+      
+
+    if (cfg.stars.show) { 
+      setStyle(cfg.stars.style);
+      container.selectAll(parentElement + " .star").each(function(d) {
+        if (clip(d.geometry.coordinates) && d.properties.mag <= cfg.stars.limit) {
+          var pt = mapProjection(d.geometry.coordinates),
+              r = starSize(d);
+          context.fillStyle = starColor(d); 
+          context.beginPath();
+          context.arc(pt[0], pt[1], r, 0, 2 * Math.PI);
+          context.closePath();
+          context.fill();
+          if (cfg.stars.designation && d.properties.mag <= cfg.stars.designationLimit*adapt) {
+            setTextStyle(cfg.stars.designationStyle);
+            context.fillText(starDesignation(d.id), pt[0]+r, pt[1]);
+          }
+          if (cfg.stars.propername && d.properties.mag <= cfg.stars.propernameLimit*adapt) {
+            setTextStyle(cfg.stars.propernameStyle);
+            context.fillText(starPropername(d.id), pt[0]-r, pt[1]);
+          }
+        }
+      });
+    }
+    
+    if (cfg.dsos.show) { 
+      container.selectAll(parentElement + " .dso").each(function(d) {
+        if (clip(d.geometry.coordinates) && dsoDisplay(d.properties, cfg.dsos.limit)) {
+          var pt = mapProjection(d.geometry.coordinates),
+              type = d.properties.type;
+          if (cfg.dsos.colors === true) setStyle(cfg.dsos.symbols[type]);
+          else setStyle(cfg.dsos.style);
+          var r = dsoSymbol(d, pt);
+          if (has(cfg.dsos.symbols[type], "stroke")) context.stroke();
+          else context.fill();
+          
+          if (cfg.dsos.names && dsoDisplay(d.properties, cfg.dsos.nameLimit*adapt)) {
+            setTextStyle(cfg.dsos.nameStyle);
+            if (cfg.dsos.colors === true) context.fillStyle = cfg.dsos.symbols[type].fill;
+            context.fillText(dsoName(d), pt[0]+r, pt[1]-r);      
+          }
+        }
+      });
+    }
+
+    if (cfg.planets.show && instance.origin && instance.date) {
+      var dt = instance.date(),
+          o = instance.origin(dt).spherical();
+      container.selectAll(parentElement + " .planet").each(function(d) {
+        var id = d.id(), r = 12 * adapt,
+            p = d(dt).equatorial(o),
+            pos = transformDeg(p.ephemeris.pos, euler[cfg.transform]);  //transform; 
+        if (clip(pos)) {
+          var pt = mapProjection(pos),
+              sym = cfg.planets.symbols[id];
+          context.save();
+          setTextStyle(cfg.planets.symbolStyle);
+          context.beginPath();
+          if (cfg.planets.symbolType === "letter") {
+            setTextStyle(cfg.planets.symbolStyle);
+            context.fillStyle = sym.fill;
+            context.fillText(sym.letter, pt[0], pt[1]);
+          } else if (id === "lun") {
+            if (has(sym, "size") && isNumber(sym.size)) r = sym.size * adapt;
+            context.fillStyle = sym.fill;
+            Canvas.symbol().type("crescent").size(r*r).age(p.ephemeris.age).position(pt)(context);
+          } else if (cfg.planets.symbolType === "disk") {
+            r = has(sym, "size") && isNumber(sym.size) ? sym.size * adapt : planetSize(p.ephemeris);
+            context.fillStyle = sym.fill;
+            Canvas.symbol().type("circle").size(r*r).position(pt)(context);
+            context.fill();
+          } else if (cfg.planets.symbolType === "symbol") {
+            setTextStyle(cfg.planets.symbolStyle);
+            context.font = planetSymbol(cfg.planets.symbolStyle.font);
+            context.fillStyle = sym.fill;
+            context.fillText(sym[cfg.planets.symbolType], pt[0], pt[1]);            
+          }
+          //name
+          if (cfg.planets.names) {
+            var name = p[cfg.planets.namesType];
+            setTextStyle(cfg.planets.nameStyle);
+            //context.direction = "ltr" || "rtl" ar il ir
+            context.fillStyle = sym.fill;
+            context.fillText(name, pt[0] - r/2, pt[1] + r/2);                        
+          }
+          context.restore();
+        }
+      });
+    }
+    
+    if (layersEnabled && current === instance && legacyLayers && Celestial.data.length > 0) { 
+      Celestial.data.forEach( function(d) {
+        if (typeof d.redraw === "function") d.redraw();
+      });
+    }
+    
+    if ((cfg.location || cfg.formFields.location) && cfg.daylight.show && projectionSetting.clip && instance.zenith) {
+      var sol = getPlanet("sol", undefined, instance);
+      if (sol) {
+        var up = instance.zenith(),
+            solpos = transformDeg(sol.ephemeris.pos, euler[cfg.transform]),
+            dist = d3.geoDistance(up, solpos),
+            pt = mapProjection(solpos);
+
+        daylight.center(solpos);
+        setSkyStyle(dist, pt);
+        container.selectAll(parentElement + " .daylight").datum(daylight).attr("d", map);
+        context.fill();    
+        context.fillStyle = "#fff"; 
+        if (clip(solpos)) {
+          context.beginPath();
+          context.arc(pt[0], pt[1], 6, 0, 2 * Math.PI);
+          context.closePath();
+          context.fill();
+        }
+      }
+    }
+
+    if ((cfg.location || cfg.formFields.location) && cfg.horizon.show && !projectionSetting.clip && instance.nadir) {
+      circle.center(instance.nadir());
+      setStyle(cfg.horizon);
+      container.selectAll(parentElement + " .horizon").datum(circle).attr("d", map);  
+      context.fill(); 
+      if (cfg.horizon.stroke) context.stroke(); 
+    }
+
+    context.restore();
+
+    if (cfg.controls) { 
+      zoomState(mapProjection.scale());
+    }
+    
+    if (current === instance && hasCallback) { 
+      Celestial.runCallback();
+    }
+    
+    //Celestial.updateForm();
+
+  }
+    
+
+  function drawOutline(stroke) {
+    var rot = mapProjection.rotate(),
+        prj = getProjection(cfg.projection, config.projectionRatio);
+    
+    mapProjection.rotate([0,0]);
+    setStyle(cfg.background);
+    container.selectAll(parentElement + " .outline").attr("d", map);
+    if (stroke === true) {
+      context.globalAlpha = 1;
+      if (!has(cfg.background, "width") || cfg.background.width > 0) context.stroke();
+    } else {
+      context.fill();
+    }
+    mapProjection.rotate(rot);
+  }
+
+  // Use the same unrotated boundary as drawOutline. Clip the content in two
+  // passes so the border retains its full stroke at the existing draw position.
+  function clipOutline() {
+    var rot = mapProjection.rotate();
+    try {
+      mapProjection.rotate([0,0]);
+      context.beginPath();
+      container.selectAll(parentElement + " .outline").attr("d", map);
+      context.clip();
+    } finally {
+      mapProjection.rotate(rot);
+    }
+  }
+
+  // Helper functions -------------------------------------------------
+  
+  function clip(coords) {
+    return projectionSetting.clip && d3.geoDistance(cfg.center, coords) > halfπ ? 0 : 1;
+  }
+
+  // At some rotations d3-geo fills the COMPLEMENT of the Milky Way polygon: the
+  // map greys out and the Milky Way shows black. Typically when the band moves
+  // towards the rim of the disc. Deciding the interior of a spherical polygon is
+  // numerically fragile there — the ol1 outline is a thin shell: an outer ring of
+  // area 1.697*pi containing a hole of 1.623*pi, the difference between them
+  // being the 0.069*pi Milky Way band.
+  //
+  // There is however one point whose correct answer we know for certain: the
+  // galactic pole. The Milky Way outlines are bands around the galactic equator,
+  // so the pole lies OUTSIDE every one of them — and INSIDE their complement
+  // (mwbg). The two poles are antipodal, so with a clipped projection exactly
+  // one of them is visible.
+  //
+  // We ask the already-built path (isPointInPath), and when its verdict
+  // contradicts what we know, we redraw with the rings reversed.
+  function galacticPole() {
+    var p = transformDeg(poles.galactic, euler[cfg.transform]);
+    if (!clip(p)) p = [p[0] + 180, -p[1]];   // the other pole is the visible one
+    return mapProjection(p);
+  }
+
+  function wrongWinding(expected) {
+    var pt = galacticPole();
+    if (!pt || !isFinite(pt[0]) || !isFinite(pt[1])) return false;
+    // isPointInPath expects the point in device coordinates, while the context
+    // has setTransform(pixelRatio, ...) applied — hence the multiplication.
+    return context.isPointInPath(pt[0] * pixelRatio, pt[1] * pixelRatio) !== expected;
+  }
+
+  function reversed(d) {
+    if (!d.reversedCopy) d.reversedCopy = reversedFeature(d);
+    return d.reversedCopy;
+  }
+
+  function setStyle(s) {
+    var width = has(s, "width") && isNumber(s.width) ? +s.width : null;
+    context.fillStyle = s.fill || null;
+    context.strokeStyle = width === 0 ? "rgba(0,0,0,0)" : s.stroke || null;
+    if (width !== null && width > 0) context.lineWidth = width;
+    context.globalAlpha = s.opacity !== null ? s.opacity : 1;  
+    context.font = s.font || null;
+    if (has(s, "dash")) context.setLineDash(s.dash); else context.setLineDash([]);
+    context.beginPath();
+  }
+
+  function setTextStyle(s) {
+    context.fillStyle = s.fill;
+    context.textAlign = s.align || "left";
+    context.textBaseline = s.baseline || "bottom";
+    context.globalAlpha = s.opacity !== null ? s.opacity : 1;  
+    context.font = s.font;
+  }
+
+  function setStyleA(rank, s) {
+    rank = rank || 1;
+    context.fillStyle = isArray(s.fill) ? s.fill[rank-1] : null;
+    var width = isArray(s.width) && isNumber(s.width[rank-1]) ? +s.width[rank-1] : null;
+    context.strokeStyle = width === 0 ? "rgba(0,0,0,0)" : isArray(s.stroke) ? s.stroke[rank-1] : null;
+    if (width !== null && width > 0) context.lineWidth = width;
+    context.globalAlpha = isArray(s.opacity) ? s.opacity[rank-1] : 1;  
+    context.font = isArray(s.font) ? s.font[rank-1] : null;
+    if (has(s, "dash")) context.setLineDash(s.dash); else context.setLineDash([]);
+    context.textAlign = s.align || "left";
+    context.textBaseline = s.baseline || "bottom";
+    context.beginPath();
+  }
+
+  function setSkyStyle(dist, pt) {
+    var factor, color1, color2, color3,
+        upper = 1.36, 
+        lower = 1.885;
+    
+    if (dist > lower) {
+      context.fillStyle = "transparent"; 
+      context.globalAlpha = 0;
+      return;
+    }
+    
+    if (dist <= upper) { 
+      color1 = "#daf1fa";
+      color2 = "#93d7f0"; 
+      color3 = "#57c0e8"; 
+      factor = -(upper-dist) / 10; 
+    } else {
+      factor = (dist - upper) / (lower - upper);
+      color1 = d3.interpolateLab("#daf1fa", "#e8c866")(factor);
+      color2 = d3.interpolateLab("#93c7d0", "#ff854a")(factor);
+      color3 = d3.interpolateLab("#57b0c8", "#6caae2")(factor);
+    }
+    var grad = context.createRadialGradient(pt[0],pt[1],0, pt[0],pt[1],300);
+    grad.addColorStop(0, color1);
+    grad.addColorStop(0.2+0.4*factor, color2);
+    grad.addColorStop(1, color3);
+    context.fillStyle = grad;
+    context.globalAlpha = 0.9 * (1 - skyTransparency(factor, 1.4));
+  }
+  
+  function skyTransparency(t, a) {
+    return (Math.pow(Math.E, t*a) - 1) / (Math.pow(Math.E, a) - 1);
+  }
+  
+  function zoomState(sc) {
+    var czi = $("celestial-zoomin"),
+        czo = $("celestial-zoomout"),
+        defscale = projectionSetting.scale * width/1024;
+    if (!czi || !czo) return;
+    czi.disabled = sc >= defscale * zoomextent * 0.99;
+    czo.disabled = sc <= defscale; 
+  }
+  
+  function setClip(setit) {
+    if (setit) { mapProjection.clipAngle(90); } 
+    else { mapProjection.clipAngle(null); }        
+  }
+  
+  function filename(what, sub, ext) {
+    var cult = (has(formats[what], culture)) ? "." + culture : "";
+    ext = ext ? "." + ext : ".json";
+    sub = sub ? "." + sub : "";
+    return what + sub + cult + ext;
+  }
+  
+  function dsoDisplay(prop, limit) {
+    return prop.mag === 999 && Math.sqrt(parseInt(prop.dim)) > limit ||
+           prop.mag !== 999 && prop.mag <= limit;
+  }
+  
+  function dsoSymbol(d, pt) {
+    var prop = d.properties;
+    var size = dsoSize(prop) || 9,
+        type = dsoShape(prop.type);
+    Canvas.symbol().type(type).size(size).position(pt)(context);
+    return Math.sqrt(size)/2;
+  }
+
+  function dsoShape(type) {
+    if (!type || !has(cfg.dsos.symbols, type)) return "circle"; 
+    else return cfg.dsos.symbols[type].shape; 
+  }
+
+  function dsoSize(prop) {
+    if (!prop.mag || prop.mag === 999) return Math.pow(parseInt(prop.dim) * dsobase * adapt / 7, 0.5); 
+    return Math.pow(2 * dsobase * adapt - prop.mag, dsoexp);
+  }
+ 
+
+  function dsoName(d) {
+    //return d.properties[cfg.dsos.namesType]; 
+    var lang = cfg.dsos.namesType, id = d.id;
+    if (lang === "desig" || !has(dsonames, id)) return d.properties.desig;
+    return has(dsonames[id], lang) ? dsonames[id][lang] : d.properties.desig; 
+  }
+  
+  /* Star designation  */
+  function starDesignation(id) {
+    if (!has(starnames, id)) return "";
+    return starnames[id][cfg.stars.designationType]; 
+  }
+
+  function starPropername(id) {
+    var lang = cfg.stars.propernameType;
+    if (!has(starnames, id)) return "";
+    return has(starnames[id], lang) ? starnames[id][lang] : starnames[id].name; 
+  }
+  
+  function starSize(d) {
+    var mag = d.properties.mag;
+    if (mag === null) return 0.1; 
+    var r = starbase * adapt * Math.exp(starexp * (mag+2));
+    return Math.max(r, 0.1);
+  }
+
+  
+  function starColor(d) {
+    var bv = d.properties.bv;
+    if (!cfg.stars.colors || isNaN(bv)) {return cfg.stars.style.fill; }
+    return bvcolor(bv);
+  }
+  
+  function constName(d) { 
+    return d.properties[cfg.constellations.namesType]; 
+  }
+
+  function planetSize(d) {
+    var mag = d.mag;
+    if (mag === null) return 2; 
+    var r = 4 * adapt * Math.exp(-0.05 * (mag+2));
+    return Math.max(r, 2);
+  }
+ 
+  function planetSymbol(s) {
+    var size = s.replace(/(^\D*)(\d+)(\D.+$)/i,'$2');
+    size = Math.round(adapt * size);
+    return s.replace(/(^\D*)(\d+)(\D.+$)/i,'$1' + size + '$3');
+  }
+ 
+  function gridOrientation(pos, orient) {
+    var o = orient.split(""), h = "center", v = "middle"; 
+    for (var i = o.length-1; i >= 0; i--) {
+      switch(o[i]) {
+        case "N": v = "bottom"; break;
+        case "S": v = "top"; break;
+        case "E": h = "left"; pos[0] += 2; break;
+        case "W": h = "right";  pos[0] -= 2; break;
+      }
+    }
+    context.textAlign = h;
+    context.textBaseline = v;
+    return pos;
+  }
+  
+  function clear() {
+    context.clearRect(0, 0, canvaswidth + margin[0], canvasheight + margin[1]);
+  }
+  
+  function getWidth() {
+    var w = 0;
+    if (isNumber(cfg.width) && cfg.width > 0) w = cfg.width;
+    else if (parent) w = parent.getBoundingClientRect().width - margin[0] *2;
+    // No container element: the map goes into the body, so the body's width is
+    // what counts. This originally read window.getBoundingClientRect(), which is
+    // not a method that exists — with neither a container nor an explicit width
+    // the map did not render at all, display() threw.
+    else w = document.body.getBoundingClientRect().width - margin[0]*2;
+    //if (isNumber(cfg.background.width)) w -= cfg.background.width;
+    return w;
+  }
+  
+  function getProjection(p, ratioOverride) {
+    if (!has(projections, p)) return;
+    var res = Object.assign({}, projections[p]);
+    if (!has(res, "ratio")) res.ratio = 2;  // Default w/h ratio 2:1    
+    res.ratio = ratioOverride ? ratioOverride : res.ratio;
+    return res;
+  }
+ 
+  
+  function animate() {
+    if (life.disposed) return;
+    if (!animations || animations.length < 1) return;
+
+    var d, a = animations[animationIndex];
+    
+    switch (a.param) {
+      case "projection": d = reproject({projection:a.value}); break;
+      case "center": d = rotate({center:a.value}); break;
+      case "zoom": d = zoomBy(a.value);
+    }
+    if (a.callback) life.schedule(a.callback, d);
+    animationIndex++;
+    if (repeat === true && animationIndex === animations.length) animationIndex = 0;
+    d = a.duration === 0 || a.duration < d ? d : a.duration;
+    if (animationIndex < animations.length) animationID = life.schedule(animate, d);
+  }
+  
+  function stop() {
+    life.cancel(animationID);
+    //animationIndex = 0;
+    //repeat = false;
+  }
+
+  
+  // Exported objects and functions for adding data
+  //
+  this.clip = clip;
+  this.context = context;
+  // Exports this map. It calls the module function directly rather than
+  // Celestial.exportSVG: the backwards-compatible interface copies this very
+  // method onto itself, so going through it would recurse.
+  this.exportSVG = function (callback) { return ui.exportSVG(instance, callback); };
+  this.metrics = function() {
+    return {"width": width, "height": height, "margin": margin, "scale": mapProjection.scale()};
+  };
+  this.setStyle = setStyle;
+  this.setTextStyle = setTextStyle;
+  this.setStyleA = setStyleA;
+  this.setConstStyle = function(rank, font) { 
+    var f = arrayfy(font);
+    context.font = f[rank];    
+  };
+  this.symbol = Canvas.symbol;
+  this.dsoSymbol = dsoSymbol;
+  this.redraw = redraw; 
+  this.resize = function(config) { 
+    if (config !== undefined) {  
+      if (has(config, "width")) cfg.width = config.width; 
+      else if (isNumber(config)) cfg.width = config;
+    }
+    resize(true); 
+    return cfg.width;
+  }; 
+  this.reload = function(config) { 
+    if (life.disposed) return;
+    var ctr;
+    //if (!config || !has(config, "transform")) return;
+    //cfg.transform = config.transform; 
+    if (config) Object.assign(cfg, settings.set(config, cfg));
+    if (cfg.follow === "center" && has(cfg, "center")) {
+      ctr = getAngles(cfg.center);
+    } else if (cfg.follow === "zenith" && instance.zenith) {
+      ctr = getAngles(instance.zenith());
+    } 
+    if (ctr) mapProjection.rotate(ctr);
+    container.selectAll(parentElement + " *").remove(); 
+    load(); 
+  }; 
+  this.apply = function(config) { apply(config); }; 
+  this.reproject = function(config) { return reproject(config); }; 
+  this.rotate = function(config) { if (!config) return cfg.center; return rotate(config); }; 
+  this.zoomBy = function(factor) { if (!factor) return mapProjection.scale()/scale; return zoomBy(factor); };
+  this.color = function(type) {
+    if (!type) return "#000";
+    if (has(cfg.dsos.symbols, type)) return cfg.dsos.symbols[type].fill;
+    return "#000";
+  };
+  this.starColor = starColor;
+  this.animate = function(anims, dorepeat) { 
+    if (!anims) return; 
+    animations = anims; 
+    animationIndex = 0; 
+    repeat = dorepeat ? true : false; 
+    animate(); 
+  };
+  this.stop  = function(wipe) {
+    stop();
+    if (wipe === true) animations = [];
+  };
+  this.go = function(index) {
+    if (animations.length < 1) return;
+    if (index && index < animations.length) animationIndex = index;
+    animate(); 
+  };
+
+  /* obsolete
+  if (!has(this, "date"))
+    this.date = function() { console.log("instance.date() needs config.location = true to work." ); };
+  */
+  load();
+  layersEnabled = true;
+  }
+}
+
+export function setCurrent(instance) { current = instance; }
+export { Celestial };

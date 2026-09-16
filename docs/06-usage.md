@@ -57,6 +57,50 @@ a browser operation; importing the package in Node does not remove its DOM and
 Canvas requirements. Disposal cancels an outstanding export without calling its
 success callback.
 
+## Compact CELD catalogues
+
+The normal JSON catalogue layout is the default. A `CELD` catalogue is an
+explicit Canvas-only opt-in: one checked binary file, with only the tables the
+map configuration requests. Do not point a CELD configuration at a generic
+JSON data directory, and do not request labels the selected CELD profile did
+not encode.
+
+```js
+Celestial.display({
+  container: "celestial-map",
+  catalogue: {format: "celd", url: "/data/telescope.celd"},
+  stars: {show: true, limit: 5, designation: false, propername: false},
+  dsos: {show: true, names: false},
+  constellations: {names: false, lines: true, bounds: false},
+  planets: {show: true},
+  mw: {show: false}
+});
+```
+
+Build profiles deterministically from the source JSON with the builder. This
+example produces the telescope-oriented selection: magnitude-five stars,
+notable DSOs, line/label tables, observer bodies and visible planets. Adding
+Milky Way geometry is separately opt-in because its simplification tolerance
+requires visual review and its source provenance remains unresolved.
+
+```sh
+node tools/build-catalogue.mjs --output telescope.celd \
+  --stars-limit 5 --star-names-limit 1.2 --dso-profile notable \
+  --planets sol,lun,mer,ven,mar,jup,sat,ura,nep
+
+# Only after visual review of this exact tolerance:
+node tools/build-catalogue.mjs --output telescope-with-mw.celd \
+  --stars-limit 5 --star-names-limit 1.2 --dso-profile notable \
+  --planets sol,lun,mer,ven,mar,jup,sat,ura,nep \
+  --milky-way-tolerance 0.1
+```
+
+CELD v1 supports proper star names only as `name`, constellation labels only
+as `desig`, and DSO names as `desig` or `name`. It has no constellation-border
+table. Invalid combinations fail loudly while loading instead of silently
+drawing a partial map. SVG export is intentionally unavailable for CELD until
+the SVG renderer consumes the same table interfaces.
+
 ## Observer time and calendar years
 
 ```js

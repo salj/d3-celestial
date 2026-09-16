@@ -133,6 +133,8 @@ export interface Config {
    *  Takes precedence over `timezoneid`. Returns offset in MINUTES. */
   timezoneResolver?: ((lat: number, lon: number, whenSeconds: number)
     => number | Promise<number>) | null;
+  /** Optional binary CELD catalogue. JSON catalogue paths remain the default. */
+  catalogue?: { format: "celd"; url: string } | null;
   controls?: boolean;
   lang?: string;
   culture?: string;

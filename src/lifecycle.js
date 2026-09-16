@@ -30,6 +30,18 @@ export function createLifecycle() {
         error => { if (!disposed && error.name !== "AbortError") callback(error); }
       ).finally(() => requests.delete(controller));
     },
+    loadBytes(url, callback) {
+      if (disposed) return Promise.resolve();
+      const controller = new AbortController();
+      requests.add(controller);
+      return fetch(url, { signal: controller.signal }).then(response => {
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${url}`);
+        return response.arrayBuffer();
+      }).then(
+        bytes => { if (!disposed) callback(null, new Uint8Array(bytes)); },
+        error => { if (!disposed && error.name !== "AbortError") callback(error); }
+      ).finally(() => requests.delete(controller));
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

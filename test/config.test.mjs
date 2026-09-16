@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { settings } from "../src/config.js";
+import { catalogueRequirements } from "../src/catalogue-adapter.js";
 
 test("changing a line color preserves width, opacity and other constellation settings", () => {
   const base = settings.set({}, settings);
@@ -21,4 +22,30 @@ test("changing label positions retains their style and replaces the position arr
   assert.deepEqual(changed.lines.graticule.lat, base.lines.graticule.lat);
   changed.lines.graticule.lat.pos.push(0);
   assert.notDeepEqual(changed.lines.graticule.lat.pos, base.lines.graticule.lat.pos);
+});
+
+test("catalogue is explicit CELD opt-in with a non-empty URL", () => {
+  const celd = settings.set({catalogue: {format: "celd", url: "data/sky.celd"}}, settings)
+    .applyDefaults({catalogue: {format: "celd", url: "data/sky.celd"}}, settings);
+  assert.deepEqual(celd.catalogue, {format: "celd", url: "data/sky.celd"});
+  assert.throws(() => settings.set({catalogue: {format: "json", url: "sky.json"}}, settings)
+    .applyDefaults({catalogue: {format: "json", url: "sky.json"}}, settings), /catalogue must be null/);
+  assert.throws(() => settings.set({catalogue: {format: "celd", url: ""}}, settings)
+    .applyDefaults({catalogue: {format: "celd", url: ""}}, settings), /catalogue must be null/);
+});
+
+test("CELD requirements match enabled data and reject unsupported label modes", () => {
+  const cfg = settings.set({
+    mw: {show: false},
+    stars: {designation: false, propername: true, propernameType: "name"},
+    dsos: {show: true, names: true, namesType: "name"},
+    constellations: {names: true, namesType: "desig", lines: true, bounds: false},
+    planets: {show: true}
+  }, settings).applyDefaults({}, settings);
+  assert.deepEqual(catalogueRequirements(cfg), {
+    milkyWay: false, stars: true, starLabels: true, dsos: true, dsoNames: true,
+    constellationLabels: true, constellationLines: true, planets: true
+  });
+  cfg.stars.designation = true;
+  assert.throws(() => catalogueRequirements(cfg), /designation/);
 });

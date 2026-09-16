@@ -7,6 +7,15 @@ import { poles, skyProjection } from "./projection.js";
 import { euler, getAngles, halfπ, transformDeg } from "./transform.js";
 import { attrs, taskQueue, functor, has, isArray, loadJson } from "./util.js";
 
+// CELD is currently materialised for Canvas only. SVG used to re-fetch every
+// JSON source independently, so accepting CELD here would silently export a
+// different map or fail halfway through an asynchronous export. Keep that
+// boundary explicit until both renderers share the same materialised catalogue.
+export function assertSvgCatalogueSupported(cfg) {
+  if (cfg?.catalogue?.format === "celd")
+    throw new Error("SVG export is unavailable for CELD catalogues; use JSON catalogue format");
+}
+
 // SVG export of one map. It receives the instance so that it works from that
 // map's own configuration, container and name tables.
 //
@@ -16,6 +25,7 @@ function exportSVG(sky, done, fname) {
   // The working element is used through this reference, never looked up by
   // its id: two exports running at once, or one left behind by an export that
   // failed, would otherwise find each other's element.
+  assertSvgCatalogueSupported(sky?.cfg);
   var doc = d3.select("body").append("div").attr("class", "d3-celestial-svg").attr("style", "display: none"),
       svg = doc.append("svg"),
       m = sky.metrics(),

@@ -29,7 +29,7 @@ var globalConfig = {};
 //Defaults
 var settings = { 
   width: 0,     // Default width; height is determined by projection
-  projection: "aitoff",  // Map projection used: airy, aitoff, armadillo, august, azimuthalEqualArea, azimuthalEquidistant, baker, berghaus, boggs, bonne, bromley, collignon, craig, craster, cylindricalEqualArea, cylindricalStereographic, eckert1, eckert2, eckert3, eckert4, eckert5, eckert6, eisenlohr, equirectangular, fahey, foucaut, ginzburg4, ginzburg5, ginzburg6, ginzburg8, ginzburg9, gringorten, hammer, hatano, healpix, hill, homolosine, kavrayskiy7, lagrange, larrivee, laskowski, loximuthal, mercator, miller, mollweide, mtFlatPolarParabolic, mtFlatPolarQuartic, mtFlatPolarSinusoidal, naturalEarth, nellHammer, orthographic, patterson, polyconic, rectangularPolyconic, robinson, sinusoidal, stereographic, times, twoPointEquidistant, vanDerGrinten, vanDerGrinten2, vanDerGrinten3, vanDerGrinten4, wagner4, wagner6, wagner7, wiechel, winkel3
+  projection: "aitoff",  // Map projection used: airy, aitoff, armadillo, august, azimuthalEqualArea, azimuthalEquidistant, baker, berghaus, boggs, bonne, bromley, collignon, craig, craster, cylindricalEqualArea, cylindricalStereographic, eckert1, eckert2, eckert3, eckert4, eckert5, eckert6, eisenlohr, equirectangular, fahey, foucaut, ginzburg4, ginzburg5, ginzburg6, ginzburg8, ginzburg9, gringorten, hammer, hatano, healpix, hill, homolosine, kavrayskiy7, lagrange, larrivee, laskowski, littrow, loximuthal, mercator, miller, mollweide, mtFlatPolarParabolic, mtFlatPolarQuartic, mtFlatPolarSinusoidal, naturalEarth, nellHammer, orthographic, patterson, polyconic, rectangularPolyconic, robinson, sinusoidal, stereographic, times, twoPointEquidistant, vanDerGrinten, vanDerGrinten2, vanDerGrinten3, vanDerGrinten4, wagner4, wagner6, wagner7, wiechel, winkel3
   projectionRatio: null, // Optional override for default projection ratio
   transform: "equatorial", // Coordinate transformation: equatorial (default), ecliptic, galactic, supergalactic
   center: null,       // Sky longitude, latitude and orientation, all in degrees.
@@ -415,6 +415,9 @@ var projections = {
   "lagrange": {n:"Lagrange", arg:Math.PI/4, scale:88, ratio:1.6, clip:false},
   "larrivee": {n:"l'Arrivée", arg:null, scale:160, ratio:1.25},
   "laskowski": {n:"Laskowski Tri-Optimal", arg:null, scale:165, ratio:1.7},
+  /* Full-sphere Littrow reaches an antipodal singularity during D3 outline
+   * resampling. Its useful telescope view is the centred visible hemisphere. */
+  "littrow": {n:"Littrow", arg:null, scale:82, ratio:2 * Math.PI, clip:true},
   "loximuthal": {n:"Loximuthal", arg:Math.PI/4, scale:175, ratio:1.8},
   "mercator": {n:"Mercator", arg:null, scale:160, ratio:1.3},
   "miller": {n:"Miller", arg:null, scale:160, ratio:1.5},

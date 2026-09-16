@@ -78,19 +78,20 @@ Celestial.display({
 ```
 
 Build profiles deterministically from the source JSON with the builder. This
-example produces the telescope-oriented selection: magnitude-five stars,
-notable DSOs, line/label tables, observer bodies and visible planets. Adding
+example retains every star available in the bundled source catalogue; the map
+configuration, not the database build, chooses the display magnitude. It also
+includes notable DSOs, line/label tables, observer bodies and visible planets. Adding
 Milky Way geometry is separately opt-in because its simplification tolerance
 requires visual review and its source provenance remains unresolved.
 
 ```sh
 node tools/build-catalogue.mjs --output telescope.celd \
-  --stars-limit 5 --star-names-limit 1.2 --dso-profile notable \
+  --stars-limit 6 --star-names-limit 1.2 --dso-profile notable \
   --planets sol,lun,mer,ven,mar,jup,sat,ura,nep
 
 # Only after visual review of this exact tolerance:
 node tools/build-catalogue.mjs --output telescope-with-mw.celd \
-  --stars-limit 5 --star-names-limit 1.2 --dso-profile notable \
+  --stars-limit 6 --star-names-limit 1.2 --dso-profile notable \
   --planets sol,lun,mer,ven,mar,jup,sat,ura,nep \
   --milky-way-tolerance 0.1
 ```

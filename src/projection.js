@@ -151,23 +151,12 @@ function skyProjection(projection, finite) {
   raw = rawProjection(projection, p.arg);
   if (!raw) { throw new Error("Projection not supported: " + projection); }
 
-  // We look at the sky mirrored: from the outside in, not from the inside out.
-  // The v3 code did this by wrapping the raw function — `raw(-lambda, phi)` — and
-  // ezt tartjuk meg.
-  //
-  // v7's reflectX(true) would be the obvious choice, and for 65 projections it
-  // gives exactly the same result. But not for all of them: for `wiechel` it
-  // differs by 795 pixels, because there the sign of lambda matters INSIDE the
-  // formula too (`atan2(sin lambda * cos phi, -sin phi)`), not only in the
-  // x coordinate of the result. Wrapping is unaffected by this.
+  // Telescope views use the screen-facing astronomical convention: east is
+  // where the rest of the UI puts east. Bound only non-finite output for SVG.
   forward = finite
-    ? function (l, f) { var xy = raw(-l, f); return [bound(xy[0]), bound(xy[1])]; }
-    : function (l, f) { return raw(-l, f); };
-  forward.invert = function (x, y) {
-    var coord = raw.invert && raw.invert(x, y);
-    if (coord) coord[0] = -coord[0];
-    return coord;
-  };
+    ? function (l, f) { var xy = raw(l, f); return [bound(xy[0]), bound(xy[1])]; }
+    : function (l, f) { return raw(l, f); };
+  forward.invert = function (x, y) { return raw.invert && raw.invert(x, y); };
   return d3.geoProjection(forward);
 }
 

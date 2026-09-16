@@ -281,7 +281,11 @@ export class CoreSkyMap {
       var con = getData(data.constellationLabels, cfg.transform);
       container.selectAll(parentElement + " .constnames").data(con.features).enter()
         .append("text").attr("class", "constname");
-      instance.constellations = getConstellationList(con);
+      // CELD labels retain only displayable coordinates/rank. The legacy
+      // constellation selector additionally needs upstream display-scale
+      // metadata, which a headless map neither has nor uses.
+      if (con.features.every(function(feature) { return feature.properties.display; }))
+        instance.constellations = getConstellationList(con);
     }
     if (data.constellationLines) {
       var conl = getData(data.constellationLines, cfg.transform);

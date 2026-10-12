@@ -500,30 +500,47 @@ export class CoreSkyMap {
   }
   
   // Zoom by factor; >1 larger <1 smaller 
-  function zoomBy(factor) {
+  function zoomBy(factor, point) {
     if (life.disposed) return;
     if (!factor || factor === 1) return;
     var sc0 = mapProjection.scale(),
         sc1 = sc0 * factor,
         ext = zoom.scaleExtent(),
-        interval = ANIMINTERVAL_Z * Math.sqrt(Math.abs(1-factor));
+        interval = ANIMINTERVAL_Z * Math.sqrt(Math.abs(1-factor)),
+        targetTranslate = null;
         
     if (sc1 < ext[0]) sc1 = ext[0];
     if (sc1 > ext[1]) sc1 = ext[1];
+    if (point && isNumber(point[0]) && isNumber(point[1])) {
+      var translate = mapProjection.translate(),
+          scaleFactor = sc1 / sc0;
+      targetTranslate = [
+        point[0] - (point[0] - translate[0]) * scaleFactor,
+        point[1] - (point[1] - translate[1]) * scaleFactor
+      ];
+    }
     if (cfg.disableAnimations === true) { 
       mapProjection.scale(sc1); 
+      if (targetTranslate) mapProjection.translate(targetTranslate);
       zoom.scale(sc1); 
       redraw(); 
       return 0; 
     }
-    var zTween = d3.interpolateNumber(sc0, sc1);
+    var zTween = d3.interpolateNumber(sc0, sc1),
+        translate0 = mapProjection.translate(),
+        translateTween = targetTranslate ? [
+          d3.interpolateNumber(translate0[0], targetTranslate[0]),
+          d3.interpolateNumber(translate0[1], targetTranslate[1])
+        ] : null;
     d3.select(transitionNodes[0]).transition().duration(interval).tween("scale", function () {
         return function(t) {
           var z = zTween(t);
           mapProjection.scale(z); 
+          if (translateTween) mapProjection.translate([translateTween[0](t), translateTween[1](t)]);
           redraw(); 
         };
     }).transition().duration(0).tween("scale", function () {
+      if (targetTranslate) mapProjection.translate(targetTranslate);
       zoom.scale(sc1); 
       redraw(); 
     });
@@ -1288,7 +1305,8 @@ export class CoreSkyMap {
   this.apply = function(config) { apply(config); }; 
   this.reproject = function(config) { return reproject(config); }; 
   this.rotate = function(config) { if (!config) return cfg.center; return rotate(config); }; 
-  this.zoomBy = function(factor) { if (!factor) return mapProjection.scale()/scale; return zoomBy(factor); };
+  // `point`, when supplied, is in map-local screen pixels before device scaling.
+  this.zoomBy = function(factor, point) { if (!factor) return mapProjection.scale()/scale; return zoomBy(factor, point); };
   this.color = function(type) {
     if (!type) return "#000";
     if (has(cfg.dsos.symbols, type)) return cfg.dsos.symbols[type].fill;
